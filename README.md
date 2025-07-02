@@ -1,36 +1,168 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DocuBrand - Rebrand your documents. Keep your content.
 
-## Getting Started
+![DocuBrand](https://img.shields.io/badge/DocuBrand-v0.1.0-blue)
+![Next.js](https://img.shields.io/badge/Next.js-15.3.4-black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)
+![pdf-lib](https://img.shields.io/badge/pdf--lib-1.17.1-red)
 
-First, run the development server:
+**DocuBrand** is a micro-SaaS web application designed for educators to quickly apply personal branding (logo, colors, fonts) to teaching documents while preserving content accuracy 100%.
+
+## 🎯 MVP Features
+
+- **📁 PDF Upload**: Drag & drop interface with validation
+- **🎨 Brand Kit**: Logo upload, color picker, font selection  
+- **⚡ Client-side Processing**: Privacy-first PDF manipulation
+- **📥 Download**: Branded PDF with preserved content
+- **💾 Local Storage**: Brand kit persistence
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Node.js 18.18+ 
+- pnpm (recommended package manager)
+
+### Installation
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+# Clone the repository
+git clone <repository-url>
+cd docubrand
+
+# Install dependencies
+pnpm install
+
+# Start development server
 pnpm dev
-# or
-bun dev
+
+# Open browser
+open http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Building for Production
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+# Build the application
+pnpm build
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+# Start production server
+pnpm start
+```
 
-## Learn More
+## 📁 Project Structure
 
-To learn more about Next.js, take a look at the following resources:
+```
+src/
+├── app/
+│   ├── layout.tsx          # Root layout with fonts
+│   ├── page.tsx            # Main application page
+│   └── globals.css         # Global styles
+├── components/
+│   ├── BrandKit.tsx        # Brand kit sidebar
+│   ├── FileUpload.tsx      # PDF upload component
+│   └── PDFPreview.tsx      # Preview component
+├── lib/
+│   ├── pdf-processor.ts    # PDF manipulation engine
+│   ├── brand-kit.ts        # Brand kit management
+│   ├── storage.ts          # localStorage utilities
+│   └── download.ts         # Download utilities
+└── types/
+    └── index.ts            # TypeScript definitions
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 🔧 Technology Stack
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Framework**: Next.js 15 with App Router
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **PDF Processing**: pdf-lib (client-side)
+- **Color Picker**: react-colorful
+- **Fonts**: Google Fonts (next/font)
+- **Deployment**: Vercel-ready
 
-## Deploy on Vercel
+## 📖 Usage
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. **Set up Brand Kit**:
+   - Upload your logo (PNG/JPG, max 5MB)
+   - Choose your brand color
+   - Select font family
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+2. **Upload PDF**:
+   - Drag & drop or click to select
+   - Supports PDF files up to 10MB
+   - MVP: Focus on simple document structures
+
+3. **Download Branded PDF**:
+   - Processing applies branding automatically
+   - Original content preserved 100%
+   - Download with timestamped filename
+
+## 🎨 Brand Kit Options
+
+### Fonts Available
+- Inter (default UI font)
+- Roboto  
+- Open Sans
+- Lato
+- Poppins
+
+### Logo Requirements
+- Formats: PNG, JPG
+- Max size: 5MB
+- Automatically resized maintaining aspect ratio
+
+### Color System
+- Hex color picker
+- Applied to headers and accent elements
+- Maintains readability and contrast
+
+## 🧪 Testing
+
+Test with the provided sample documents or create simple PDF files with:
+- Clear title structure
+- Numbered questions/sections
+- Text-based content (MVP scope)
+
+## 🚧 MVP Limitations
+
+- **Document Types**: Simple text-based PDFs only
+- **No User Accounts**: Brand kit stored locally
+- **Basic Branding**: Logo, color, font only
+- **Single Processing**: One document at a time
+
+## 🔮 Future Enhancements
+
+- Multiple document templates
+- Cloud storage and user accounts  
+- Batch processing capabilities
+- Advanced typography controls
+- Collaboration features
+
+## 🛠 Development
+
+### Key Dependencies
+
+```json
+{
+  "next": "^15.3.4",
+  "react": "^19.0.0", 
+  "pdf-lib": "^1.17.1",
+  "react-colorful": "^5.6.1"
+}
+```
+
+### Scripts
+
+- `pnpm dev` - Start development server
+- `pnpm build` - Build for production
+- `pnpm start` - Start production server  
+- `pnpm lint` - Run ESLint
+- `pnpm type-check` - TypeScript check
+
+## 📄 License
+
+Created by **RuthlessCode** for Sprint #1 (July 15-28, 2025)
+
+---
+
+**DocuBrand v0.1.0** - Built with ❤️ for educators worldwide
