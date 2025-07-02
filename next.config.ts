@@ -1,9 +1,17 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  turbopack: {
+    resolveAlias: {
+      // Fix for TailwindCSS v4 components path
+      "tailwindcss/components": "tailwindcss",
+      "tailwindcss/base": "tailwindcss",
+    },
+  },
   // Enable experimental features for better PDF processing
   experimental: {
     // Optimize package imports
     optimizePackageImports: ["pdf-lib", "react-colorful"],
+    // Enable Turbopack configuration
   },
 
   // Webpack configuration for pdf-lib compatibility
