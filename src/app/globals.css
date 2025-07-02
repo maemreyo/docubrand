@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Custom CSS variables for font families */
+    --font-inter: 'Inter', sans-serif;
+    --font-roboto: 'Roboto', sans-serif;
+    --font-open-sans: 'Open Sans', sans-serif;
+    --font-lato: 'Lato', sans-serif;
+    --font-poppins: 'Poppins', sans-serif;
+  }
+
+  body {
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+}
+
+@layer components {
+  /* Custom component styles */
+  .brand-kit-section {
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4;
+  }
+
+  .upload-zone {
+    @apply border-2 border-dashed border-gray-300 rounded-lg p-8 text-center transition-colors;
+  }
+
+  .upload-zone:hover {
+    @apply border-blue-400 bg-blue-50;
+  }
+
+  .upload-zone.dragover {
+    @apply border-blue-500 bg-blue-100;
+  }
+
+  .btn-primary {
+    @apply bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-lg transition-colors;
+  }
+}
+
+@layer utilities {
+  /* Font family utilities for different document fonts */
+  .font-inter { font-family: var(--font-inter); }
+  .font-roboto { font-family: var(--font-roboto); }
+  .font-open-sans { font-family: var(--font-open-sans); }
+  .font-lato { font-family: var(--font-lato); }
+  .font-poppins { font-family: var(--font-poppins); }
+}
