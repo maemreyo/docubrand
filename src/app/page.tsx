@@ -5,7 +5,6 @@
 import { useState } from 'react';
 import { BrandKit } from '@/components/BrandKit';
 import { FileUpload } from '@/components/FileUpload';
-import { PDFPreview } from '@/components/PDFPreview';
 import { VerificationUI } from '@/components/VerificationUI';
 import { useBrandKit } from '@/lib/brand-kit';
 import { useDocuBrandAPI } from '@/lib/api-client';
@@ -15,7 +14,19 @@ import { GeminiAnalysisResponse } from '@/types/gemini';
 type WorkflowStep = 'upload' | 'processing' | 'verification' | 'generating' | 'complete';
 
 export default function HomePage() {
-  const { brandKit, isLoaded, updateLogo, updateColor, updateFont, resetBrandKit } = useBrandKit();
+  const { 
+    brandKit, 
+    isLoaded, 
+    updateLogo, 
+    updateColor,
+    updateSecondaryColor,
+    updateAccentColor,
+    updateFont,
+    updateHeaderFont,
+    updateWatermark,
+    updateFooterText,
+    resetBrandKit 
+  } = useBrandKit();
   const { analyzePDF } = useDocuBrandAPI();
 
   // State management
@@ -200,20 +211,24 @@ export default function HomePage() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          {/* Brand Kit Sidebar */}
-          <div className="lg:col-span-1">
-            <BrandKit
-              brandKit={brandKit}
-              onLogoChange={updateLogo}
-              onColorChange={updateColor}
-              onFontChange={updateFont}
-            />
-          </div>
+        {/* Brand Kit - Collapsible Component */}
+        <div className="mb-6">
+          <BrandKit
+            brandKit={brandKit}
+            onLogoChange={updateLogo}
+            onColorChange={updateColor}
+            onSecondaryColorChange={updateSecondaryColor}
+            onAccentColorChange={updateAccentColor}
+            onFontChange={updateFont}
+            onHeaderFontChange={updateHeaderFont}
+            onWatermarkChange={updateWatermark}
+            onFooterTextChange={updateFooterText}
+          />
+        </div>
 
-          {/* Main Content Area */}
-          <div className="lg:col-span-3">
-            <div className="space-y-6">
+        {/* Main Content Area - Full Width */}
+        <div>
+          <div className="space-y-6">
               {/* Step 1: File Upload */}
               {currentStep === 'upload' && (
                 <FileUpload
@@ -264,7 +279,6 @@ export default function HomePage() {
           </div>
         </div>
       </div>
-    </div>
   );
 }
 

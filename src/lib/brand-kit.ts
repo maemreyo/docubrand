@@ -36,10 +36,45 @@ export const useBrandKit = () => {
     }));
   };
 
+  const updateSecondaryColor = (secondaryColor: string) => {
+    setBrandKit(prev => ({
+      ...prev,
+      secondaryColor,
+    }));
+  };
+
+  const updateAccentColor = (accentColor: string) => {
+    setBrandKit(prev => ({
+      ...prev,
+      accentColor,
+    }));
+  };
+
   const updateFont = (font: string) => {
     setBrandKit(prev => ({
       ...prev,
       font,
+    }));
+  };
+
+  const updateHeaderFont = (headerFont: string) => {
+    setBrandKit(prev => ({
+      ...prev,
+      headerFont,
+    }));
+  };
+
+  const updateWatermark = (watermark: string | null) => {
+    setBrandKit(prev => ({
+      ...prev,
+      watermark,
+    }));
+  };
+
+  const updateFooterText = (footerText: string | null) => {
+    setBrandKit(prev => ({
+      ...prev,
+      footerText,
     }));
   };
 
@@ -52,16 +87,28 @@ export const useBrandKit = () => {
     isLoaded,
     updateLogo,
     updateColor,
+    updateSecondaryColor,
+    updateAccentColor,
     updateFont,
+    updateHeaderFont,
+    updateWatermark,
+    updateFooterText,
     resetBrandKit,
   };
 };
 
 // Predefined Google Fonts for MVP
 export const AVAILABLE_FONTS = [
-  { name: 'Inter', displayName: 'Inter' },
-  { name: 'Roboto', displayName: 'Roboto' },
-  { name: 'Open Sans', displayName: 'Open Sans' },
-  { name: 'Lato', displayName: 'Lato' },
-  { name: 'Poppins', displayName: 'Poppins' },
+  { name: 'Inter', displayName: 'Inter', category: 'sans-serif' },
+  { name: 'Roboto', displayName: 'Roboto', category: 'sans-serif' },
+  { name: 'Open Sans', displayName: 'Open Sans', category: 'sans-serif' },
+  { name: 'Lato', displayName: 'Lato', category: 'sans-serif' },
+  { name: 'Poppins', displayName: 'Poppins', category: 'sans-serif' },
+  { name: 'Merriweather', displayName: 'Merriweather', category: 'serif' },
+  { name: 'Playfair Display', displayName: 'Playfair Display', category: 'serif' },
+  { name: 'Montserrat', displayName: 'Montserrat', category: 'sans-serif' },
+  { name: 'Source Sans Pro', displayName: 'Source Sans Pro', category: 'sans-serif' },
+  { name: 'PT Serif', displayName: 'PT Serif', category: 'serif' },
+  { name: 'Nunito', displayName: 'Nunito', category: 'sans-serif' },
+  { name: 'Quicksand', displayName: 'Quicksand', category: 'sans-serif' },
 ] as const;

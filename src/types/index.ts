@@ -3,8 +3,13 @@ export interface BrandKit {
     file: File | null;
     dataUrl: string | null;
   };
-  color: string; // hex color
+  color: string; // primary hex color
+  secondaryColor: string; // secondary hex color
+  accentColor: string; // accent hex color
   font: string; // Google Font family name
+  headerFont: string; // Google Font for headers
+  watermark: string | null; // Optional watermark text
+  footerText: string | null; // Optional footer text
 }
 
 export interface QuizElement {

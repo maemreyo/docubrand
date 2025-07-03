@@ -7,8 +7,13 @@ export const defaultBrandKit: BrandKit = {
     file: null,
     dataUrl: null,
   },
-  color: '#3B82F6', // default blue
-  font: 'Inter', // default font
+  color: '#3B82F6', // default primary blue
+  secondaryColor: '#E5E7EB', // default light gray
+  accentColor: '#10B981', // default green
+  font: 'Inter', // default body font
+  headerFont: 'Poppins', // default header font
+  watermark: null, // no default watermark
+  footerText: null, // no default footer text
 };
 
 export const saveBrandKit = (brandKit: BrandKit): void => {
