@@ -47,6 +47,7 @@ export default function HomePage() {
     useState<GeminiAnalysisResponse | null>(null);
   const [processingResult, setProcessingResult] =
     useState<PDFProcessingResult | null>(null);
+  const [brandedPdf, setBrandedPdf] = useState<Uint8Array | null>(null);
 
   // Handle file upload and AI analysis
   const handleFileUpload = async (file: File) => {
@@ -171,12 +172,33 @@ export default function HomePage() {
       });
       setCurrentStep("complete");
 
-      // Auto-download the file
+      // Store branded PDF for preview instead of auto-download
       if (result.brandedPdf) {
-        console.log("📥 Auto-downloading PDF...");
-        const filename = generateBrandedFilename(uploadedFile.name);
-        downloadPDF(result.brandedPdf, filename);
-        console.log("✅ Download initiated");
+        console.log("📥 Branded PDF ready for preview and download");
+        
+        // Test PDF validity 
+        const { testPDFValidity } = await import("@/lib/download");
+        const validationResult = await testPDFValidity(result.brandedPdf);
+        
+        console.log("🔍 PDF validation result:", validationResult);
+        
+        if (validationResult.isValid) {
+          // Store PDF for preview instead of auto-download
+          setBrandedPdf(result.brandedPdf);
+          console.log("✅ PDF ready for preview");
+        } else {
+          console.error("❌ PDF validation failed:", validationResult.error);
+          console.error("📋 PDF details:", validationResult.details);
+          
+          // Show warning to user but still allow download
+          setProcessingStatus({
+            status: "warning",
+            message: `PDF might be corrupted (${validationResult.error}), but download will proceed.`,
+          });
+          
+          const filename = generateBrandedFilename(uploadedFile.name);
+          downloadPDF(result.brandedPdf, filename);
+        }
       } else {
         console.warn("⚠️ No branded PDF in result");
       }
@@ -224,33 +246,34 @@ export default function HomePage() {
       return;
     }
 
-    if (!analysisResult) {
-      console.error("❌ No analysis result");
-      return;
-    }
-
     try {
       const { PDFProcessor } = await import("@/lib/pdf-processor");
       const processor = new PDFProcessor();
 
       console.log("🧪 Testing PDF generation with current data...");
-      const result = await processor.processDocument(
-        uploadedFile,
-        brandKit,
-        analysisResult
-      );
+      const result = await processor.processPDF(uploadedFile, brandKit, {
+        documentType: detectDocumentType(uploadedFile.name),
+        language: "en",
+        extractContent: false,
+        applyBranding: true,
+        onProgress: (status) => {
+          console.log("📊 Debug progress:", status);
+        },
+      });
 
-      console.log("✅ Test successful:", result);
+      console.log("✅ Debug test successful:", result);
 
       // Test download
-      const { downloadPDF, generateBrandedFilename } = await import(
-        "@/lib/download"
-      );
-      const filename = generateBrandedFilename(uploadedFile.name);
-      downloadPDF(result.brandedPdf, filename);
+      if (result.brandedPdf) {
+        const { downloadPDF, generateBrandedFilename } = await import(
+          "@/lib/download"
+        );
+        const filename = generateBrandedFilename(uploadedFile.name).replace('.pdf', '_DEBUG.pdf');
+        downloadPDF(result.brandedPdf, filename);
+      }
     } catch (error) {
-      console.error("❌ Test failed:", error);
-      alert(`Test failed: ${error.message}`);
+      console.error("❌ Debug test failed:", error);
+      alert(`Debug test failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -405,6 +428,7 @@ export default function HomePage() {
                 file={uploadedFile}
                 brandKit={brandKit}
                 processingResult={processingResult}
+                brandedPdf={brandedPdf}
                 onDownload={handleDownload}
                 onStartNew={handleStartNew}
               />
@@ -517,12 +541,14 @@ function CompletionView({
   file,
   brandKit,
   processingResult,
+  brandedPdf,
   onDownload,
   onStartNew,
 }: {
   file: File;
   brandKit: any;
   processingResult: PDFProcessingResult;
+  brandedPdf: Uint8Array | null;
   onDownload: () => void;
   onStartNew: () => void;
 }) {
@@ -595,14 +621,44 @@ function CompletionView({
         </div>
       </div>
 
+      {/* Preview and Download Section */}
+      {brandedPdf && (
+        <div className="mb-6 bg-gray-50 rounded-lg p-4">
+          <h3 className="text-sm font-medium text-gray-900 mb-3">
+            Preview & Download
+          </h3>
+          <div className="space-y-3">
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  const previewUrl = URL.createObjectURL(new Blob([brandedPdf], { type: 'application/pdf' }));
+                  window.open(previewUrl, '_blank');
+                }}
+                className="btn-secondary flex items-center gap-2 px-4 py-2 text-sm"
+              >
+                <span>👀</span>
+                Preview PDF
+              </button>
+              <button
+                onClick={() => {
+                  const { downloadPDF, generateBrandedFilename } = require('@/lib/download');
+                  const filename = generateBrandedFilename(file.name);
+                  downloadPDF(brandedPdf, filename);
+                }}
+                className="btn-primary flex items-center gap-2 px-4 py-2 text-sm"
+              >
+                <span>📥</span>
+                Download PDF
+              </button>
+            </div>
+            <p className="text-xs text-gray-600">
+              Preview opens in a new tab. Download saves to your device.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-4 justify-center">
-        <button
-          onClick={onDownload}
-          className="btn-primary flex items-center gap-2 px-6 py-3"
-        >
-          <span>📥</span>
-          Download Branded PDF
-        </button>
         <button onClick={onStartNew} className="btn-secondary px-6 py-3">
           Create Another Document
         </button>

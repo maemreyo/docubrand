@@ -1,5 +1,3 @@
-// UPDATED: 2025-07-03 - Fixed fontkit integration and Vietnamese support
-
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { getSimpleFontManager, registerFontkitSafely } from "./fontkit-manager";
 import {
@@ -174,12 +172,28 @@ export class PDFProcessor {
         try {
           brandedPdf = await this.applyBranding(file, brandKit, analysisResult);
           console.log("✅ Branding applied successfully");
+          
+          // Additional validation: try to create a blob to test browser compatibility
+          const testBlob = new Blob([brandedPdf], { type: 'application/pdf' });
+          if (testBlob.size === 0) {
+            throw new Error("Generated PDF blob is empty");
+          }
+          
         } catch (brandingError) {
           console.error("❌ Branding failed:", brandingError);
           warnings.push(`Branding failed: ${brandingError instanceof Error ? brandingError.message : 'Unknown error'}`);
           
-          // Return original PDF if branding fails
-          brandedPdf = new Uint8Array(await file.arrayBuffer());
+          // Return original PDF if branding fails, but validate it first
+          const originalBuffer = await file.arrayBuffer();
+          try {
+            // Validate original PDF can be loaded
+            await PDFDocument.load(originalBuffer, { ignoreEncryption: true });
+            brandedPdf = new Uint8Array(originalBuffer);
+            console.log("⚠️ Using original PDF due to branding failure");
+          } catch (originalError) {
+            console.error("❌ Original PDF is also corrupted:", originalError);
+            errors.push("Both branding and original PDF are corrupted");
+          }
         }
       }
 
@@ -379,7 +393,7 @@ export class PDFProcessor {
   }
 
   /**
-   * Apply branding to PDF
+   * Apply branding to PDF using new PDF Builder approach
    */
   private async applyBranding(
     file: File,
@@ -387,19 +401,93 @@ export class PDFProcessor {
     analysisResult?: GeminiAnalysisResponse
   ): Promise<Uint8Array> {
     try {
+      console.log("🏗️ Using new PDF Builder approach for branding...");
+      
       // Read original PDF
       const pdfBytes = await file.arrayBuffer();
+      const originalBytes = new Uint8Array(pdfBytes);
+      
+      // Import PDF Builder
+      const { PDFBuilder } = await import("./pdf-builder");
+      
+      // Create and initialize PDF Builder
+      const pdfBuilder = new PDFBuilder();
+      await pdfBuilder.initialize();
+      
+      // Build new PDF with branding (branding elements ON TOP)
+      const brandedBytes = await pdfBuilder.buildFromExisting(
+        originalBytes,
+        brandKit,
+        {
+          preserveOriginalContent: true,
+          addBrandingLayer: true,
+          templateMode: false
+        }
+      );
+      
+      // Cleanup
+      pdfBuilder.cleanup();
+      
+      console.log("✅ PDF Builder approach completed successfully");
+      
+      // Validate generated PDF
+      await this.validateGeneratedPDF(brandedBytes);
+
+      console.log(`✅ PDF Builder completed: ${brandedBytes.length} bytes`);
+      return brandedBytes;
+    } catch (error) {
+      console.error("❌ PDF Builder failed:", error);
+      
+      // Fallback to original method if PDF Builder fails
+      console.log("🔄 Falling back to original branding method...");
+      return await this.applyBrandingFallback(file, brandKit, analysisResult);
+    }
+  }
+
+  /**
+   * Fallback branding method (original approach)
+   */
+  private async applyBrandingFallback(
+    file: File,
+    brandKit: BrandKit,
+    analysisResult?: GeminiAnalysisResponse
+  ): Promise<Uint8Array> {
+    try {
+      // Read original PDF
+      const pdfBytes = await file.arrayBuffer();
+      
+      // Load PDF with enhanced options for compatibility
       const pdfDoc = await PDFDocument.load(pdfBytes, {
         ignoreEncryption: true,
+        capNumbers: false,  // Prevent number capping
+        throwOnInvalidObject: false,  // Be more lenient with invalid objects
       });
+
+      // Validate PDF structure
+      const pageCount = pdfDoc.getPageCount();
+      if (pageCount === 0) {
+        throw new Error("PDF has no pages");
+      }
+
+      console.log(`📄 Fallback method: PDF loaded: ${pageCount} pages, applying branding...`);
 
       // Apply brand elements
       await this.addBrandElements(pdfDoc, brandKit, analysisResult);
 
-      // Generate final PDF
-      const finalPdfBytes = await pdfDoc.save();
+      // Generate final PDF with enhanced options
+      const finalPdfBytes = await pdfDoc.save({
+        useObjectStreams: false,  // Disable object streams for better compatibility
+        addDefaultPage: false,    // Don't add extra pages
+        objectsPerTick: 50,       // Process objects in smaller batches
+      });
+
+      // Validate generated PDF
+      await this.validateGeneratedPDF(finalPdfBytes);
+
+      console.log(`✅ Fallback branding completed: ${finalPdfBytes.length} bytes`);
       return finalPdfBytes;
     } catch (error) {
+      console.error("❌ Fallback branding failed:", error);
       throw new Error(
         `Branding failed: ${
           error instanceof Error ? error.message : "Unknown error"
@@ -418,44 +506,90 @@ export class PDFProcessor {
   ): Promise<void> {
     try {
       console.log(`🎨 Applying branding with fontkit support...`);
+      
+      // Debug brandKit values
+      console.log("🔍 BrandKit Debug:", {
+        color: brandKit.color,
+        secondaryColor: brandKit.secondaryColor,
+        accentColor: brandKit.accentColor,
+        watermark: brandKit.watermark,
+        footerText: brandKit.footerText,
+        font: brandKit.font,
+        logo: brandKit.logo ? "present" : "absent"
+      });
+
+      // Validate essential branding data
+      if (!brandKit.color && !brandKit.secondaryColor && !brandKit.accentColor) {
+        console.warn("⚠️ No brand colors available for styling");
+      }
 
       // Initialize font manager
       const fontInitialized = await this.fontManager.initialize(pdfDoc);
       console.log(`🔤 Font manager initialized: ${fontInitialized}`);
 
       const pages = pdfDoc.getPages();
+      console.log(`📄 Processing ${pages.length} pages for branding...`);
+
+      let successfulPages = 0;
+      let brandingApplied = false;
 
       for (let i = 0; i < pages.length; i++) {
         const page = pages[i];
         const { width, height } = page.getSize();
 
         try {
-          // Apply brand styling (colors and borders)
+          console.log(`🎨 Branding page ${i + 1} (${width}x${height})...`);
+
+              // Apply brand styling (colors and borders) - ALWAYS apply this
           await this.applyBrandStyling(page, brandKit, width, height);
+          brandingApplied = true;
+          console.log(`🎨 Basic brand styling applied to page ${i + 1}`);
 
-          // Add footer with font manager
-          await this.addSmartFooter(page, pdfDoc, brandKit, width, height);
-
+          // Add footer with fallback
+          try {
+            await this.addSmartFooter(page, pdfDoc, brandKit, width, height);
+          } catch (footerError) {
+            console.warn(`⚠️ Smart footer failed on page ${i + 1}, using basic footer:`, footerError);
+            await this.addBasicFooter(page, pdfDoc, brandKit, width, height);
+          }
+          
           // Add watermark if specified
           if (brandKit.watermark) {
-            await this.addSmartWatermark(page, pdfDoc, brandKit.watermark, width, height);
+            try {
+              await this.addSmartWatermark(page, pdfDoc, brandKit.watermark, width, height);
+            } catch (watermarkError) {
+              console.warn(`⚠️ Watermark failed on page ${i + 1}:`, watermarkError);
+              // Try basic watermark
+              await this.addBasicWatermark(page, pdfDoc, brandKit.watermark, width, height);
+            }
           }
 
+          successfulPages++;
           console.log(`✅ Page ${i + 1} branding applied successfully`);
         } catch (pageError) {
           console.warn(`⚠️ Page ${i + 1} branding failed:`, pageError);
-          // Continue with other pages
+          // Try minimal branding at least
+          try {
+            await this.applyMinimalBranding(page, brandKit, width, height);
+            brandingApplied = true;
+          } catch (minimalError) {
+            console.error(`❌ Even minimal branding failed on page ${i + 1}:`, minimalError);
+          }
         }
       }
 
       // Set document metadata
       await this.setDocumentMetadata(pdfDoc, analysisResult);
 
-      console.log("✅ All branding applied with fontkit support");
+      console.log(`✅ Branding completed: ${successfulPages}/${pages.length} pages successful`);
+      
+      if (!brandingApplied) {
+        throw new Error("No branding elements could be applied to any page");
+      }
+
     } catch (error) {
-      console.error("❌ Branding failed:", error);
-      // Don't throw error, continue without branding
-      console.log("⚠️ Continuing without visual branding...");
+      console.error("❌ Critical branding failure:", error);
+      throw error; // Re-throw to trigger fallback in parent method
     }
   }
 
@@ -647,13 +781,94 @@ export class PDFProcessor {
     }
   }
 
+  /**
+   * Apply minimal branding (just colors) as last resort
+   */
+  private async applyMinimalBranding(
+    page: any,
+    brandKit: BrandKit,
+    pageWidth: number,
+    pageHeight: number
+  ): Promise<void> {
+    try {
+      console.log("🎨 Applying minimal branding...");
+      
+      // Just add colored borders - most basic branding possible
+      if (brandKit.color && this.isValidHexColor(brandKit.color)) {
+        const color = this.hexToRgb(brandKit.color);
+        
+        // Top border (thicker)
+        page.drawRectangle({
+          x: 0,
+          y: pageHeight - 8,
+          width: pageWidth,
+          height: 8,
+          color: rgb(color.r / 255, color.g / 255, color.b / 255),
+        });
+        
+        // Bottom border
+        page.drawRectangle({
+          x: 0,
+          y: 0,
+          width: pageWidth,
+          height: 3,
+          color: rgb(color.r / 255, color.g / 255, color.b / 255),
+        });
+        
+        console.log("✅ Minimal branding applied (colored borders)");
+      }
+      
+    } catch (error) {
+      console.error("❌ Minimal branding failed:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Basic watermark fallback
+   */
+  private async addBasicWatermark(
+    page: any,
+    pdfDoc: PDFDocument,
+    watermarkText: string,
+    pageWidth: number,
+    pageHeight: number
+  ): Promise<void> {
+    try {
+      const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+      const fontSize = 36;
+      
+      // Convert to ASCII for safety
+      const safeText = this.fontManager.toASCII(watermarkText);
+      
+      // Calculate center position
+      const textWidth = font.widthOfTextAtSize(safeText, fontSize);
+      const x = (pageWidth - textWidth) / 2;
+      const y = pageHeight / 2;
+
+      // Add more visible watermark
+      page.drawText(safeText, {
+        x,
+        y,
+        size: fontSize,
+        font,
+        color: rgb(0.7, 0.7, 0.7), // Darker gray
+        opacity: 0.6, // More opaque
+      });
+      
+      console.log("✅ Basic watermark added");
+    } catch (error) {
+      console.warn("⚠️ Basic watermark failed:", error);
+    }
+  }
+
 
 
 
 
 
   /**
-   * Apply brand styling to page (existing method, no changes needed)
+   * Apply brand styling to page (enhanced with more robust error handling)
    */
   private async applyBrandStyling(
     page: any,
@@ -662,40 +877,133 @@ export class PDFProcessor {
     pageHeight: number
   ): Promise<void> {
     try {
-      // Add brand color accents
+      let stylingApplied = false;
+      
+      // Add brand color accents (primary color)
       if (brandKit.color && this.isValidHexColor(brandKit.color)) {
-        const color = this.hexToRgb(brandKit.color);
+        try {
+          const color = this.hexToRgb(brandKit.color);
 
-        // Add thin colored border at top
-        page.drawRectangle({
-          x: 0,
-          y: pageHeight - 5,
-          width: pageWidth,
-          height: 5,
-          color: rgb(color.r / 255, color.g / 255, color.b / 255),
-        });
+          // Add VERY thick colored border at top (maximum visibility)
+          page.drawRectangle({
+            x: 0,
+            y: pageHeight - 20,
+            width: pageWidth,
+            height: 20,
+            color: rgb(color.r / 255, color.g / 255, color.b / 255),
+          });
+          
+          stylingApplied = true;
+          console.log(`🎨 Primary brand color applied: ${brandKit.color}`);
+        } catch (colorError) {
+          console.warn(`⚠️ Failed to apply primary color ${brandKit.color}:`, colorError);
+        }
       }
 
       // Add secondary color accent if available
-      if (
-        brandKit.secondaryColor &&
-        this.isValidHexColor(brandKit.secondaryColor)
-      ) {
-        const color = this.hexToRgb(brandKit.secondaryColor);
+      if (brandKit.secondaryColor && this.isValidHexColor(brandKit.secondaryColor)) {
+        try {
+          const color = this.hexToRgb(brandKit.secondaryColor);
 
-        // Add thin colored border at bottom
-        page.drawRectangle({
-          x: 0,
-          y: 0,
-          width: pageWidth,
-          height: 3,
-          color: rgb(color.r / 255, color.g / 255, color.b / 255),
-        });
+          // Add VERY thick colored border at bottom (maximum visibility)  
+          page.drawRectangle({
+            x: 0,
+            y: 0,
+            width: pageWidth,
+            height: 15,
+            color: rgb(color.r / 255, color.g / 255, color.b / 255),
+          });
+          
+          stylingApplied = true;
+          console.log(`🎨 Secondary brand color applied: ${brandKit.secondaryColor}`);
+        } catch (secondaryError) {
+          console.warn(`⚠️ Failed to apply secondary color ${brandKit.secondaryColor}:`, secondaryError);
+        }
       }
 
-      console.log("✅ Brand styling applied successfully");
+      // Add accent color border (always add if available for extra visibility)
+      if (brandKit.accentColor && this.isValidHexColor(brandKit.accentColor)) {
+        try {
+          const color = this.hexToRgb(brandKit.accentColor);
+
+          // Add VERY thick accent border on the left side (maximum visibility)
+          page.drawRectangle({
+            x: 0,
+            y: 0,
+            width: 15,
+            height: pageHeight,
+            color: rgb(color.r / 255, color.g / 255, color.b / 255),
+          });
+          
+          stylingApplied = true;
+          console.log(`🎨 Accent brand color applied: ${brandKit.accentColor}`);
+        } catch (accentError) {
+          console.warn(`⚠️ Failed to apply accent color ${brandKit.accentColor}:`, accentError);
+        }
+      }
+
+      // Fallback: Add default branding if no colors worked
+      if (!stylingApplied) {
+        console.warn("⚠️ No brand colors could be applied, using default styling");
+        
+        // Add a simple gray border as minimal branding
+        page.drawRectangle({
+          x: 0,
+          y: pageHeight - 2,
+          width: pageWidth,
+          height: 2,
+          color: rgb(0.8, 0.8, 0.8),
+        });
+        
+        stylingApplied = true;
+        console.log("🎨 Default gray branding applied");
+      }
+
+      // Add corner branding element for maximum visibility
+      if (brandKit.accentColor && this.isValidHexColor(brandKit.accentColor)) {
+        try {
+          const color = this.hexToRgb(brandKit.accentColor);
+          
+          // Add corner rectangle in top-right (more visible)
+          page.drawRectangle({
+            x: pageWidth - 80,
+            y: pageHeight - 80,
+            width: 80,
+            height: 80,
+            color: rgb(color.r / 255, color.g / 255, color.b / 255),
+            opacity: 0.5, // More opaque
+          });
+          
+          console.log(`🎨 Corner branding added with accent color: ${brandKit.accentColor}`);
+        } catch (cornerError) {
+          console.warn("⚠️ Corner branding failed:", cornerError);
+        }
+      }
+
+      // Add debug rectangle to prove branding is working (bright red)
+      try {
+        page.drawRectangle({
+          x: pageWidth - 200,
+          y: pageHeight - 200,
+          width: 100,
+          height: 100,
+          color: rgb(1, 0, 0), // Bright red
+          opacity: 0.8,
+        });
+        console.log("🔴 DEBUG: Red rectangle added - this should be very visible!");
+      } catch (debugError) {
+        console.warn("⚠️ Debug rectangle failed:", debugError);
+      }
+
+      if (stylingApplied) {
+        console.log("✅ Brand styling applied successfully");
+      } else {
+        throw new Error("No brand styling could be applied");
+      }
+      
     } catch (error) {
-      console.warn("⚠️ Brand styling failed:", error);
+      console.error("❌ Brand styling failed completely:", error);
+      throw error; // Re-throw to trigger fallback
     }
   }
 
@@ -795,6 +1103,52 @@ export class PDFProcessor {
         pages: 1,
         size: file.size,
       };
+    }
+  }
+
+  /**
+   * Validate generated PDF to ensure it's not corrupted
+   */
+  private async validateGeneratedPDF(pdfBytes: Uint8Array): Promise<void> {
+    try {
+      // Check minimum PDF size
+      if (pdfBytes.length < 100) {
+        throw new Error("Generated PDF is too small (likely corrupted)");
+      }
+
+      // Check PDF header
+      const header = Array.from(pdfBytes.slice(0, 8))
+        .map(byte => String.fromCharCode(byte))
+        .join('');
+      
+      if (!header.startsWith('%PDF-')) {
+        throw new Error("Generated PDF has invalid header");
+      }
+
+      // Check PDF footer (should end with %%EOF)
+      const footer = Array.from(pdfBytes.slice(-20))
+        .map(byte => String.fromCharCode(byte))
+        .join('');
+      
+      if (!footer.includes('%%EOF')) {
+        console.warn("⚠️ Generated PDF might not have proper EOF marker");
+      }
+
+      // Try to reload the generated PDF to ensure it's valid
+      const testDoc = await PDFDocument.load(pdfBytes, {
+        ignoreEncryption: true,
+        throwOnInvalidObject: false,
+      });
+
+      const testPageCount = testDoc.getPageCount();
+      if (testPageCount === 0) {
+        throw new Error("Generated PDF has no readable pages");
+      }
+
+      console.log(`✅ Generated PDF validation passed: ${testPageCount} pages, ${pdfBytes.length} bytes`);
+    } catch (error) {
+      console.error("❌ Generated PDF validation failed:", error);
+      throw new Error(`Generated PDF is corrupted: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

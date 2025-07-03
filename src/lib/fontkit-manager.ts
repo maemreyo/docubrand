@@ -17,10 +17,10 @@ async function loadFontkit(): Promise<any> {
   try {
     // Try dynamic import first
     if (typeof window !== 'undefined') {
-      // Browser environment
-      const fontkit = await import('fontkit');
+      // Browser environment - use @pdf-lib/fontkit
+      const fontkit = await import('@pdf-lib/fontkit');
       fontkitCache = fontkit.default || fontkit;
-      console.log('✅ Fontkit loaded successfully in browser');
+      console.log('✅ @pdf-lib/fontkit loaded successfully in browser');
       return fontkitCache;
     } else {
       // Server environment (should not happen in our case)
@@ -28,7 +28,7 @@ async function loadFontkit(): Promise<any> {
       return null;
     }
   } catch (error) {
-    console.error('❌ Failed to load fontkit:', error);
+    console.error('❌ Failed to load @pdf-lib/fontkit:', error);
     return null;
   }
 }
@@ -37,25 +37,32 @@ async function loadFontkit(): Promise<any> {
  * Register fontkit with PDFDocument
  */
 export async function registerFontkitSafely(pdfDoc: any): Promise<boolean> {
-  if (registrationAttempted) {
-    return fontkitCache !== null;
-  }
-
-  registrationAttempted = true;
-
   try {
+    // Reset registration state for each new document
     const fontkit = await loadFontkit();
     
     if (fontkit && pdfDoc && typeof pdfDoc.registerFontkit === 'function') {
       pdfDoc.registerFontkit(fontkit);
-      console.log('✅ Fontkit registered with PDFDocument');
+      console.log('✅ @pdf-lib/fontkit registered successfully with PDFDocument');
+      registrationAttempted = true;
       return true;
     } else {
-      console.warn('⚠️ Fontkit or registerFontkit method not available');
+      console.warn('⚠️ Fontkit or registerFontkit method not available:', {
+        fontkit: !!fontkit,
+        fontkitType: typeof fontkit,
+        pdfDoc: !!pdfDoc,
+        registerFontkit: typeof pdfDoc?.registerFontkit,
+        fontkitProperties: fontkit ? Object.keys(fontkit).slice(0, 5) : 'none'
+      });
       return false;
     }
   } catch (error) {
     console.error('❌ Fontkit registration failed:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack?.slice(0, 200)
+    });
     return false;
   }
 }
