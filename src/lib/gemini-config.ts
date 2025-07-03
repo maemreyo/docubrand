@@ -92,7 +92,7 @@ export class GeminiConfigManager {
 
     // Validate model name
     const model = process.env.GEMINI_MODEL;
-    const validModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+    const validModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.5-pro'];
     if (model && !validModels.includes(model)) {
       errors.push(`Invalid GEMINI_MODEL: ${model}. Valid options: ${validModels.join(', ')}`);
     }

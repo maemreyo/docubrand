@@ -1,4 +1,4 @@
-// UPDATED: 2025-07-03 - Integrated with Gemini AI for content extraction
+// UPDATED: 2025-07-03 - Added support for edited verification results
 
 import { PDFDocument, PDFPage, rgb, StandardFonts } from 'pdf-lib';
 import { BrandKit, QuizElement, PDFProcessingResult } from '@/types';
@@ -33,6 +33,38 @@ export class PDFProcessor {
     } catch (error) {
       console.error('❌ Failed to load PDF:', error);
       throw new Error(`Could not load PDF file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Load PDF with pre-analyzed content (from verification step)
+   */
+  async loadPDFWithAnalysis(file: File, analysisResult: GeminiAnalysisResponse): Promise<void> {
+    try {
+      console.log('📄 Loading PDF with pre-analyzed content:', file.name);
+      
+      // Convert File to ArrayBuffer
+      const arrayBuffer = await file.arrayBuffer();
+      this.originalBytes = new Uint8Array(arrayBuffer);
+      
+      // Load PDF with pdf-lib for processing
+      this.pdfDoc = await PDFDocument.load(this.originalBytes);
+      
+      // Use provided analysis result
+      this.analysisResult = analysisResult;
+      
+      // Convert analysis to elements
+      this.convertGeminiToElements();
+      
+      console.log('✅ PDF loaded with verified content:', {
+        questionsFound: this.analysisResult.extractedQuestions.length,
+        sectionsFound: this.analysisResult.documentStructure.sections.length,
+        confidence: this.analysisResult.processingInfo.confidence
+      });
+      
+    } catch (error) {
+      console.error('❌ Failed to load PDF with analysis:', error);
+      throw new Error(`Could not load PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -105,30 +137,55 @@ export class PDFProcessor {
     this.elements = [];
     const { documentStructure, extractedQuestions } = this.analysisResult;
 
+    // Add document title as first element
+    if (this.analysisResult.extractedContent.title) {
+      this.elements.push({
+        type: 'title',
+        content: this.analysisResult.extractedContent.title,
+        position: { x: 100, y: 750 },
+        originalFont: 'Helvetica-Bold',
+        originalSize: 18
+      });
+    }
+
+    // Add instructions if available
+    if (this.analysisResult.extractedContent.instructions && this.analysisResult.extractedContent.instructions.length > 0) {
+      this.elements.push({
+        type: 'text',
+        content: this.analysisResult.extractedContent.instructions.join(' '),
+        position: { x: 100, y: 700 },
+        originalFont: 'Helvetica',
+        originalSize: 12
+      });
+    }
+
     // Convert document sections to QuizElements
     documentStructure.sections.forEach((section: DocumentSection, index: number) => {
       const element: QuizElement = {
         type: this.mapSectionTypeToElementType(section.type),
         content: section.content,
         position: {
-          x: 100, // Default positioning - can be enhanced
-          y: 800 - (index * 50) // Rough vertical positioning
+          x: 100,
+          y: 650 - (index * 40) // Adjust spacing
         },
-        originalFont: section.formatting?.fontSize || 'Helvetica',
+        originalFont: section.formatting?.isBold ? 'Helvetica-Bold' : 'Helvetica',
         originalSize: this.mapFontSizeToNumber(section.formatting?.fontSize)
       };
 
       this.elements.push(element);
     });
 
-    // Add extracted questions as separate elements
+    // Add extracted questions as separate elements with better positioning
     extractedQuestions.forEach((question, index) => {
+      const questionY = 500 - (index * 120); // More space between questions
+
+      // Main question
       const questionElement: QuizElement = {
         type: 'question',
         content: `${question.number}. ${question.content}`,
         position: {
           x: 120,
-          y: 700 - (index * 100) // Space out questions
+          y: questionY
         },
         originalFont: 'Helvetica-Bold',
         originalSize: 12
@@ -144,7 +201,7 @@ export class PDFProcessor {
             content: option,
             position: {
               x: 140,
-              y: 680 - (index * 100) - (optIndex * 20)
+              y: questionY - 20 - (optIndex * 18) // Better spacing for options
             },
             originalFont: 'Helvetica',
             originalSize: 10
@@ -301,12 +358,67 @@ export class PDFProcessor {
 
       // 4. Apply enhanced content formatting
       if (this.analysisResult) {
-        await this.applyContentFormatting(page, brandKit);
+        await this.applyContentFormatting(page, brandKit, pageIndex);
       }
+
+      // 5. Add content elements to page
+      await this.addContentElements(page, brandKit, pageIndex);
 
     } catch (error) {
       console.warn(`⚠️ Could not apply branding to page ${pageIndex + 1}:`, error);
     }
+  }
+
+  /**
+   * Add content elements to the page
+   */
+  private async addContentElements(page: PDFPage, brandKit: BrandKit, pageIndex: number): Promise<void> {
+    try {
+      const font = await this.pdfDoc!.embedFont(StandardFonts.Helvetica);
+      const boldFont = await this.pdfDoc!.embedFont(StandardFonts.HelveticaBold);
+      const { height } = page.getSize();
+
+      // Filter elements for current page (simple approach for MVP)
+      const pageElements = this.elements.filter((_, index) => {
+        const elementsPerPage = 10; // Rough estimate
+        const elementPage = Math.floor(index / elementsPerPage);
+        return elementPage === pageIndex;
+      });
+
+      pageElements.forEach((element, index) => {
+        const yPosition = Math.max(50, element.position.y - (pageIndex * height));
+        
+        // Choose font based on element type
+        const elementFont = element.type === 'title' || element.type === 'question' ? boldFont : font;
+        
+        // Choose color based on element type
+        const textColor = element.type === 'title' ? 
+          this.hexToRgb(brandKit.color) : 
+          rgb(0.2, 0.2, 0.2);
+
+        page.drawText(element.content, {
+          x: element.position.x,
+          y: yPosition,
+          size: element.originalSize,
+          font: elementFont,
+          color: textColor,
+          maxWidth: 450, // Prevent text overflow
+        });
+      });
+
+    } catch (error) {
+      console.warn('⚠️ Could not add content elements:', error);
+    }
+  }
+
+  /**
+   * Convert hex color to RGB
+   */
+  private hexToRgb(hex: string): { r: number; g: number; b: number } {
+    const r = parseInt(hex.slice(1, 3), 16) / 255;
+    const g = parseInt(hex.slice(3, 5), 16) / 255;
+    const b = parseInt(hex.slice(5, 7), 16) / 255;
+    return rgb(r, g, b);
   }
 
   /**
@@ -421,33 +533,36 @@ export class PDFProcessor {
   /**
    * Apply enhanced content formatting based on Gemini analysis
    */
-  private async applyContentFormatting(page: PDFPage, brandKit: BrandKit): Promise<void> {
+  private async applyContentFormatting(page: PDFPage, brandKit: BrandKit, pageIndex: number): Promise<void> {
     if (!this.analysisResult) return;
 
     try {
       const font = await this.pdfDoc!.embedFont(StandardFonts.Helvetica);
       const boldFont = await this.pdfDoc!.embedFont(StandardFonts.HelveticaBold);
 
-      // Add document title if extracted
-      if (this.analysisResult.extractedContent.title) {
-        page.drawText(this.analysisResult.extractedContent.title, {
-          x: 50,
-          y: page.getSize().height - 80,
-          size: 16,
-          font: boldFont,
-          color: rgb(0.2, 0.2, 0.2),
-        });
-      }
+      // Only add header info on first page
+      if (pageIndex === 0) {
+        // Add document title if extracted
+        if (this.analysisResult.extractedContent.title) {
+          page.drawText(this.analysisResult.extractedContent.title, {
+            x: 50,
+            y: page.getSize().height - 80,
+            size: 16,
+            font: boldFont,
+            color: this.hexToRgb(brandKit.color),
+          });
+        }
 
-      // Add subject if available
-      if (this.analysisResult.documentStructure.subject) {
-        page.drawText(`Subject: ${this.analysisResult.documentStructure.subject}`, {
-          x: 50,
-          y: page.getSize().height - 110,
-          size: 12,
-          font,
-          color: rgb(0.4, 0.4, 0.4),
-        });
+        // Add subject if available
+        if (this.analysisResult.documentStructure.subject) {
+          page.drawText(`Subject: ${this.analysisResult.documentStructure.subject}`, {
+            x: 50,
+            y: page.getSize().height - 110,
+            size: 12,
+            font,
+            color: rgb(0.4, 0.4, 0.4),
+          });
+        }
       }
 
     } catch (error) {
@@ -495,16 +610,29 @@ export class PDFProcessor {
   }
 
   /**
-   * Public method to process entire workflow with enhanced AI
+   * MAIN METHOD: Process document with verified analysis result
    */
-  async processDocument(file: File, brandKit: BrandKit): Promise<PDFProcessingResult> {
+  async processDocument(
+    file: File, 
+    brandKit: BrandKit, 
+    verifiedAnalysisResult?: GeminiAnalysisResponse
+  ): Promise<PDFProcessingResult> {
     const startTime = Date.now();
     
     try {
-      console.log('🚀 Starting enhanced PDF processing with AI...');
+      console.log('🚀 Starting PDF processing...', {
+        withVerifiedContent: !!verifiedAnalysisResult,
+        fileName: file.name
+      });
       
-      // Step 1: Load PDF and extract content with Gemini
-      await this.loadPDF(file);
+      // Step 1: Load PDF with analysis (either verified or fresh)
+      if (verifiedAnalysisResult) {
+        await this.loadPDFWithAnalysis(file, verifiedAnalysisResult);
+        console.log('✅ Using verified analysis result');
+      } else {
+        await this.loadPDF(file);
+        console.log('✅ Using fresh AI analysis');
+      }
       
       // Step 2: Apply branding
       await this.applyBranding(brandKit);
@@ -517,7 +645,7 @@ export class PDFProcessor {
       result.brandedPdf = brandedPdf;
       
       const processingTime = Date.now() - startTime;
-      console.log(`✅ Enhanced PDF processing completed in ${processingTime}ms`);
+      console.log(`✅ PDF processing completed in ${processingTime}ms`);
       
       return result;
       
