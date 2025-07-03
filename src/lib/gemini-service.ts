@@ -212,7 +212,12 @@ export class GeminiService {
     if (!request.pdfBase64) {
       errors.push('PDF data is required');
     } else if (!request.pdfBase64.startsWith('data:application/pdf;base64,')) {
-      errors.push('Invalid PDF data format');
+      errors.push('Invalid PDF data format: missing data URI scheme');
+    } else {
+      const base64Data = request.pdfBase64.substring('data:application/pdf;base64,'.length);
+      if (!/^[A-Za-z0-9+/=]+$/.test(base64Data) || base64Data.length % 4 !== 0) {
+        errors.push('Invalid PDF data format: invalid base64 content');
+      }
     }
 
     // Check document type
@@ -280,11 +285,11 @@ export class GeminiService {
    */
   private async preparePDFData(pdfBase64: string): Promise<any> {
     try {
-      // Remove data URL prefix if present
+      // Remove data URL prefix
       const base64Data = pdfBase64.replace(/^data:application\/pdf;base64,/, '');
       
       // Validate base64 format
-      if (!/^[A-Za-z0-9+/=]+$/.test(base64Data)) {
+      if (!/^[A-Za-z0-9+/=]+$/.test(base64Data) || base64Data.length % 4 !== 0) {
         throw new Error('Invalid base64 PDF data');
       }
 

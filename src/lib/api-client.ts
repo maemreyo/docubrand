@@ -207,9 +207,8 @@ export class DocuBrandAPI {
       const reader = new FileReader();
       reader.onload = () => {
         const result = reader.result as string;
-        // Remove data URL prefix (data:application/pdf;base64,)
-        const base64 = result.split(",")[1];
-        resolve(base64);
+        // Keep data URL prefix (data:application/pdf;base64,)
+        resolve(result);
       };
       reader.onerror = () =>
         reject(new Error("Failed to convert file to base64"));

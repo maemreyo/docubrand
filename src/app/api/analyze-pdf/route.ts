@@ -81,16 +81,7 @@ export async function POST(
       );
     }
 
-    // Validate base64 format
-    if (!isValidBase64(body.pdfBase64)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Invalid base64 format for PDF data",
-        },
-        { status: 400 }
-      );
-    }
+    
 
     // Check PDF size (estimate from base64)
     const estimatedSize = (body.pdfBase64.length * 3) / 4; // Base64 to bytes conversion
@@ -229,26 +220,7 @@ export async function GET(): Promise<NextResponse> {
   }
 }
 
-/**
- * Validate base64 string format
- */
-function isValidBase64(str: string): boolean {
-  try {
-    // Basic base64 validation
-    if (!str || str.length === 0) return false;
 
-    // Check if string contains only valid base64 characters
-    const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
-    if (!base64Regex.test(str)) return false;
-
-    // Check if length is multiple of 4 (base64 requirement)
-    if (str.length % 4 !== 0) return false;
-
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Handle CORS preflight requests
