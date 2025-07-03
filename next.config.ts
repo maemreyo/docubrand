@@ -89,6 +89,7 @@ const nextConfig: NextConfig = {
         util: false,
         zlib: false,
         buffer: require.resolve('buffer'),
+        canvas: false, // Canvas is not available in browser
       };
 
       // Provide polyfills for browser
@@ -98,6 +99,14 @@ const nextConfig: NextConfig = {
           process: 'process/browser',
         })
       );
+    } else {
+      // Server-side: handle canvas module properly
+      config.externals = config.externals || [];
+      config.externals.push({
+        canvas: 'canvas',
+        fabric: 'fabric',
+        jsdom: 'jsdom',
+      });
     }
 
     // Handle fontkit binary files
