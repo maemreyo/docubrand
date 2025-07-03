@@ -128,7 +128,7 @@ export interface EditorConfig {
 }
 
 // Enhanced section with editor-specific properties
-export interface EnhancedDocumentSection extends DocumentSection {
+export interface EnhancedDocumentSection extends Omit<DocumentSection, 'formatting'> {
   // Editor state
   isEditing?: boolean;
   isDirty?: boolean;
@@ -297,22 +297,3 @@ export const DEFAULT_CONTENT_TEMPLATES: ContentTemplate[] = [
     category: 'format'
   }
 ];
-
-// Export all types and defaults
-export type {
-  ContentType,
-  TextFormatting,
-  EditorAction,
-  EditorState,
-  EditorHistory,
-  AutoSaveConfig,
-  KeyboardShortcut,
-  ContentTemplate,
-  ContentValidationRule,
-  EditorConfig,
-  EnhancedDocumentSection,
-  SectionEditorProps,
-  ContentTypeEditorProps,
-  EditorToolbarProps,
-  ContentFormatter
-};

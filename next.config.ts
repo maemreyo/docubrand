@@ -7,22 +7,19 @@ const nextConfig = {
       "tailwindcss/components": "tailwindcss",
       "tailwindcss/base": "tailwindcss",
     },
+    rules: {
+      // Handle PDF.js worker files
+      '*.worker.mjs': {
+        loaders: ['file-loader'],
+        as: '*.js',
+      },
+    },
   },
   
   // Enable experimental features for better PDF processing
   experimental: {
     // Optimize package imports
     optimizePackageImports: ["pdf-lib", "react-colorful"],
-    // Turbopack configuration
-    turbo: {
-      rules: {
-        // Handle PDF.js worker files
-        '*.worker.mjs': {
-          loaders: ['file-loader'],
-          as: '*.js',
-        },
-      },
-    },
   },
 
   // Webpack configuration for pdf-lib and react-pdf compatibility
@@ -96,7 +93,6 @@ const nextConfig = {
 
   // Essential settings for PDF.js compatibility
   reactStrictMode: true,
-  swcMinify: true,
 
   // Image optimization
   images: {

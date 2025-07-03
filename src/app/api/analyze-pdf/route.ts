@@ -1,37 +1,37 @@
 // CREATED: 2025-07-03 - PDF analysis API endpoint using Gemini
 
-import { NextRequest, NextResponse } from 'next/server';
-import { GeminiConfigManager } from '@/lib/gemini-config';
-import { GeminiService } from '@/lib/gemini-service';
-import { GeminiPDFAnalysisRequest, GeminiAnalysisResponse } from '@/types/gemini';
-import fs from 'fs';
-import path from 'path';
+import { NextRequest, NextResponse } from "next/server";
+import { GeminiConfigManager } from "@/lib/gemini-config";
+import { GeminiService } from "@/lib/gemini-service";
+import { GeminiAnalysisRequest, GeminiAnalysisResponse } from "@/types/gemini";
+import fs from "fs";
+import path from "path";
 
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
 export const maxDuration = 60; // 60 seconds timeout for PDF processing
 
 // Check if we're in development mode
-const isDevelopmentMode = process.env.NEXT_PUBLIC_APP_ENV === 'development';
+const isDevelopmentMode = process.env.NEXT_PUBLIC_APP_ENV === "development";
 
 /**
  * Load sample response for development mode
  */
 function loadSampleResponse(): GeminiAnalysisResponse {
   try {
-    const samplePath = path.join(process.cwd(), 'sampleResponse.json');
-    const sampleData = fs.readFileSync(samplePath, 'utf8');
+    const samplePath = path.join(process.cwd(), "sampleResponse.json");
+    const sampleData = fs.readFileSync(samplePath, "utf8");
     const parsedData = JSON.parse(sampleData);
     return parsedData.data;
   } catch (error) {
-    console.error('Failed to load sample response:', error);
-    throw new Error('Failed to load sample response for development mode');
+    console.error("Failed to load sample response:", error);
+    throw new Error("Failed to load sample response for development mode");
   }
 }
 
 interface APIRequest {
   pdfBase64: string;
-  documentType?: 'quiz' | 'worksheet' | 'general';
-  language?: 'en' | 'vi';
+  documentType?: "quiz" | "worksheet" | "general";
+  language?: "en" | "vi";
   fileName?: string;
 }
 
@@ -46,20 +46,22 @@ interface APIResponse {
  * POST /api/analyze-pdf
  * Analyze PDF document using Gemini AI
  */
-export async function POST(request: NextRequest): Promise<NextResponse<APIResponse>> {
+export async function POST(
+  request: NextRequest
+): Promise<NextResponse<APIResponse>> {
   const startTime = Date.now();
-  
+
   try {
-    console.log('📄 PDF Analysis API called');
+    console.log("📄 PDF Analysis API called");
 
     // Validate environment configuration
     const envValidation = GeminiConfigManager.validateEnvironment();
     if (!envValidation.valid) {
-      console.error('❌ Environment validation failed:', envValidation.errors);
+      console.error("❌ Environment validation failed:", envValidation.errors);
       return NextResponse.json(
         {
           success: false,
-          error: `Configuration error: ${envValidation.errors.join(', ')}`
+          error: `Configuration error: ${envValidation.errors.join(", ")}`,
         },
         { status: 500 }
       );
@@ -67,13 +69,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
 
     // Parse request body
     const body: APIRequest = await request.json();
-    
+
     // Validate required fields
     if (!body.pdfBase64) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Missing required field: pdfBase64'
+          error: "Missing required field: pdfBase64",
         },
         { status: 400 }
       );
@@ -84,7 +86,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       return NextResponse.json(
         {
           success: false,
-          error: 'Invalid base64 format for PDF data'
+          error: "Invalid base64 format for PDF data",
         },
         { status: 400 }
       );
@@ -97,81 +99,80 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
       return NextResponse.json(
         {
           success: false,
-          error: 'PDF file too large. Maximum size is 20MB.'
+          error: "PDF file too large. Maximum size is 20MB.",
         },
         { status: 413 }
       );
     }
 
-    console.log('📋 Analysis request details:', {
-      documentType: body.documentType || 'general',
-      language: body.language || 'en',
-      fileName: body.fileName || 'unknown',
-      estimatedSizeMB: Math.round(estimatedSize / 1024 / 1024)
+    console.log("📋 Analysis request details:", {
+      documentType: body.documentType || "general",
+      language: body.language || "en",
+      fileName: body.fileName || "unknown",
+      estimatedSizeMB: Math.round(estimatedSize / 1024 / 1024),
     });
 
     // Use sample response in development mode or call Gemini API in production
     let analysisResult: GeminiAnalysisResponse;
-    
+
     if (isDevelopmentMode) {
-      console.log('🧪 Development mode: Using sample response instead of calling Gemini API');
+      console.log(
+        "🧪 Development mode: Using sample response instead of calling Gemini API"
+      );
       analysisResult = loadSampleResponse();
     } else {
       // Create Gemini service
       const geminiService = await GeminiConfigManager.getService();
 
       // Prepare analysis request
-      const analysisRequest: GeminiPDFAnalysisRequest = {
+      const analysisRequest: GeminiAnalysisRequest = {
         pdfBase64: body.pdfBase64,
-        documentType: body.documentType || 'general',
-        language: body.language || 'en',
-        extractionPrompt: '' // Will be generated by PromptTemplates
+        documentType: body.documentType || "general",
+        language: body.language || "en",
       };
 
       // Perform analysis
       analysisResult = await geminiService.analyzePDF(analysisRequest);
     }
-    
+
     const processingTime = Date.now() - startTime;
-    
-    console.log('✅ PDF analysis completed successfully:', {
+
+    console.log("✅ PDF analysis completed successfully:", {
       questionsFound: analysisResult.extractedQuestions.length,
       sectionsFound: analysisResult.documentStructure.sections.length,
-      confidence: analysisResult.processingInfo.confidence,
-      processingTimeMs: processingTime
+      processingTimeMs: processingTime,
     });
 
     // Return successful response
     return NextResponse.json({
       success: true,
       data: analysisResult,
-      processingTime
+      processingTime,
     });
-
   } catch (error) {
     const processingTime = Date.now() - startTime;
-    
-    console.error('❌ PDF analysis failed:', error);
+
+    console.error("❌ PDF analysis failed:", error);
 
     // Handle specific error types
     let statusCode = 500;
-    let errorMessage = 'Internal server error during PDF analysis';
+    let errorMessage = "Internal server error during PDF analysis";
 
     if (error instanceof Error) {
       errorMessage = error.message;
-      
+
       // Map specific errors to appropriate status codes
-      if (errorMessage.includes('API key')) statusCode = 401;
-      else if (errorMessage.includes('rate limit')) statusCode = 429;
-      else if (errorMessage.includes('too large')) statusCode = 413;
-      else if (errorMessage.includes('Invalid request')) statusCode = 400;
+      if (errorMessage.includes("API key")) statusCode = 401;
+      else if (errorMessage.includes("rate limit")) statusCode = 429;
+      else if (errorMessage.includes("too large")) statusCode = 413;
+      else if (errorMessage.includes("Invalid request")) statusCode = 400;
     }
 
     return NextResponse.json(
       {
         success: false,
         error: errorMessage,
-        processingTime
+        processingTime,
       },
       { status: statusCode }
     );
@@ -185,34 +186,43 @@ export async function POST(request: NextRequest): Promise<NextResponse<APIRespon
 export async function GET(): Promise<NextResponse> {
   try {
     const envValidation = GeminiConfigManager.validateEnvironment();
-    
+
     return NextResponse.json({
-      service: 'DocuBrand PDF Analysis API',
-      version: '1.0.0',
-      status: isDevelopmentMode ? 'development_mode' : (envValidation.valid ? 'ready' : 'configuration_error'),
+      service: "DocuBrand PDF Analysis API",
+      version: "1.0.0",
+      status: isDevelopmentMode
+        ? "development_mode"
+        : envValidation.valid
+        ? "ready"
+        : "configuration_error",
       capabilities: [
-        'PDF document analysis',
-        'Educational content extraction', 
-        'Question and answer detection',
-        'Structured JSON output',
-        'Bilingual support (EN/VI)'
+        "PDF document analysis",
+        "Educational content extraction",
+        "Question and answer detection",
+        "Structured JSON output",
+        "Bilingual support (EN/VI)",
       ],
       limits: {
-        maxFileSize: '20MB',
-        supportedFormats: ['PDF'],
-        timeout: '60 seconds',
-        models: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
+        maxFileSize: "20MB",
+        supportedFormats: ["PDF"],
+        timeout: "60 seconds",
+        models: ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
       },
-      environment: isDevelopmentMode ? 'development_with_sample_data' : (envValidation.valid ? 'configured' : envValidation.errors),
-      devMode: isDevelopmentMode ? 'Using sample response from sampleResponse.json' : undefined
+      environment: isDevelopmentMode
+        ? "development_with_sample_data"
+        : envValidation.valid
+        ? "configured"
+        : envValidation.errors,
+      devMode: isDevelopmentMode
+        ? "Using sample response from sampleResponse.json"
+        : undefined,
     });
-
   } catch (error) {
     return NextResponse.json(
       {
-        service: 'DocuBrand PDF Analysis API',
-        status: 'error',
-        error: error instanceof Error ? error.message : 'Unknown error'
+        service: "DocuBrand PDF Analysis API",
+        status: "error",
+        error: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 }
     );
@@ -226,14 +236,14 @@ function isValidBase64(str: string): boolean {
   try {
     // Basic base64 validation
     if (!str || str.length === 0) return false;
-    
+
     // Check if string contains only valid base64 characters
     const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
     if (!base64Regex.test(str)) return false;
-    
+
     // Check if length is multiple of 4 (base64 requirement)
     if (str.length % 4 !== 0) return false;
-    
+
     return true;
   } catch {
     return false;
@@ -247,10 +257,10 @@ export async function OPTIONS(): Promise<NextResponse> {
   return new NextResponse(null, {
     status: 200,
     headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400'
-    }
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Max-Age": "86400",
+    },
   });
 }
