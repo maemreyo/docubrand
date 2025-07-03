@@ -451,8 +451,8 @@ export class PDFProcessor {
   private async applyBrandStyling(page: any, brandKit: BrandKit, pageWidth: number, pageHeight: number): Promise<void> {
     try {
       // Add brand color accents
-      if (brandKit.primaryColor) {
-        const color = this.hexToRgb(brandKit.primaryColor);
+      if (brandKit.color) {
+        const color = this.hexToRgb(brandKit.color);
         
         // Add thin colored border at top
         page.drawRectangle({
