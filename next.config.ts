@@ -1,49 +1,36 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  // Turbopack configuration
-  turbopack: {
-    resolveAlias: {
-      // Fix for TailwindCSS v4 components path
-      "tailwindcss/components": "tailwindcss",
-      "tailwindcss/base": "tailwindcss",
-    },
-    rules: {
-      // Handle PDF.js worker files
-      '*.worker.mjs': {
-        loaders: ['file-loader'],
-        as: '*.js',
-      },
-    },
-  },
-  
-  // Enable experimental features for better PDF processing
+import type { NextConfig } from 'next';
+
+const nextConfig: NextConfig = {
+  // Enable experimental features for better font handling
   experimental: {
-    // Optimize package imports
-    optimizePackageImports: ["pdf-lib", "react-colorful"],
+    esmExternals: true,
   },
 
-  // Webpack configuration for pdf-lib and react-pdf compatibility
+  // Webpack configuration for fontkit and pdf-lib
   webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
-    // Handle client-side dependencies
+    // Handle fontkit and binary modules
+    config.module.rules.push({
+      test: /\.node$/,
+      use: 'raw-loader',
+    });
+
+    // Handle fontkit ESM imports
+    config.externals = config.externals || [];
+    
     if (!isServer) {
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
-        fs: false,
-        path: false,
-        crypto: false,
-        stream: false,
-        buffer: false,
-      };
+      // Client-side externals
+      config.externals.push({
+        'fontkit': 'fontkit',
+      });
     }
 
-    // Essential aliases for PDF.js compatibility
+    // Resolve fontkit properly
     config.resolve.alias = {
       ...config.resolve.alias,
-      canvas: false,
-      encoding: false,
+      'fontkit': require.resolve('fontkit'),
     };
 
-    // Enhanced PDF.js worker handling for Next.js 15
+    // Handle PDF.js worker files
     config.module.rules.push(
       {
         test: /pdf\.worker\.(min\.)?mjs$/,
@@ -68,15 +55,21 @@ const nextConfig = {
       type: 'javascript/auto',
     });
 
-    // Optimize PDF.js imports
+    // Optimize fontkit bundling
     config.optimization = {
       ...config.optimization,
       splitChunks: {
         ...config.optimization.splitChunks,
         cacheGroups: {
           ...config.optimization.splitChunks?.cacheGroups,
+          fontkit: {
+            test: /[\\/]node_modules[\\/]fontkit[\\/]/,
+            name: 'fontkit',
+            chunks: 'all',
+            priority: 15,
+          },
           pdf: {
-            test: /[\\/]node_modules[\\/](pdfjs-dist|react-pdf)[\\/]/,
+            test: /[\\/]node_modules[\\/](pdfjs-dist|react-pdf|pdf-lib)[\\/]/,
             name: 'pdf',
             chunks: 'all',
             priority: 10,
@@ -85,105 +78,95 @@ const nextConfig = {
       },
     };
 
-    // Handle pdfjs-dist imports properly
-    config.resolve.extensions = ['.mjs', '.js', '.jsx', '.ts', '.tsx', '.json'];
+    // Ignore node-specific modules in browser
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+        crypto: false,
+        stream: false,
+        util: false,
+        zlib: false,
+        buffer: require.resolve('buffer'),
+      };
+
+      // Provide polyfills for browser
+      config.plugins.push(
+        new webpack.ProvidePlugin({
+          Buffer: ['buffer', 'Buffer'],
+          process: 'process/browser',
+        })
+      );
+    }
+
+    // Handle fontkit binary files
+    config.module.rules.push({
+      test: /\.(woff|woff2|eot|ttf|otf)$/,
+      type: 'asset/resource',
+      generator: {
+        filename: 'static/fonts/[name].[hash][ext]',
+      },
+    });
 
     return config;
   },
 
-  // Essential settings for PDF.js compatibility
-  reactStrictMode: true,
+  // Headers for better font loading
+  async headers() {
+    return [
+      {
+        source: '/fonts/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        source: '/static/fonts/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+          {
+            key: 'Access-Control-Allow-Origin',
+            value: '*',
+          },
+        ],
+      },
+    ];
+  },
+
+  // Environment variables for font loading
+  env: {
+    FONTKIT_ENABLED: 'true',
+    PDF_WORKER_VERSION: '4.0.379',
+  },
+
+  // Essential settings for PDF.js and fontkit compatibility
+  reactStrictMode: false, // Disable for fontkit compatibility
+  swcMinify: true,
 
   // Image optimization
   images: {
     formats: ['image/webp', 'image/avif'],
   },
 
-  // Environment variables
-  env: {
-    APP_NAME: 'DocuBrand',
-    APP_VERSION: '0.1.0',
-    PDF_WORKER_VERSION: '4.0.379',
-  },
-
-  // Headers for better PDF loading
-  async headers() {
-    return [
-      {
-        source: '/pdf.worker.min.mjs',
-        headers: [
-          {
-            key: 'Content-Type',
-            value: 'application/javascript',
-          },
-          {
-            key: 'Cache-Control',
-            value: 'public, max-age=31536000, immutable',
-          },
-        ],
-      },
-      {
-        source: '/static/chunks/pdf.worker.min.mjs',
-        headers: [
-          {
-            key: 'Content-Type',
-            value: 'application/javascript',
-          },
-          {
-            key: 'Cache-Control',
-            value: 'public, max-age=31536000, immutable',
-          },
-        ],
-      },
-    ];
-  },
-
-  // Redirects for PDF worker files (fallback)
-  async redirects() {
-    return [
-      // Redirect old worker paths to new ones if needed
-      {
-        source: '/pdf.worker.js',
-        destination: '/pdf.worker.min.mjs',
-        permanent: false,
-      },
-    ];
-  },
-
-  // Rewrites for better PDF worker handling
-  async rewrites() {
-    return [
-      // Handle PDF worker requests
-      {
-        source: '/pdf-worker/:path*',
-        destination: '/api/pdf-worker/:path*',
-      },
-    ];
-  },
-
-  // Configure output for better compatibility
+  // Output configuration for better fontkit support
   output: process.env.NODE_ENV === 'production' ? 'standalone' : undefined,
+
+  // Transpile fontkit for proper browser support
+  transpilePackages: ['fontkit'],
 
   // Compiler options
   compiler: {
-    // Remove console logs in production except errors
     removeConsole: process.env.NODE_ENV === 'production' ? {
       exclude: ['error', 'warn'],
     } : false,
   },
-
-  // Performance configuration
-  poweredByHeader: false,
-  compress: true,
-
-  // Development configuration
-  ...(process.env.NODE_ENV === 'development' && {
-    // Enhanced dev options
-    onDemandEntries: {
-      maxInactiveAge: 25 * 1000,
-      pagesBufferLength: 2,
-    },
-  }),
 };
 
-module.exports = nextConfig;
+export default nextConfig;

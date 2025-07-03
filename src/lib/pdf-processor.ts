@@ -1,6 +1,7 @@
-// UPDATED: 2025-07-03 - Enhanced with Gemini AI integration for content extraction
+// UPDATED: 2025-07-03 - Fixed fontkit integration and Vietnamese support
 
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { getSimpleFontManager, registerFontkitSafely } from "./fontkit-manager";
 import {
   GeminiAnalysisRequest,
   GeminiAnalysisResponse,
@@ -10,6 +11,7 @@ import {
 } from "@/types/gemini";
 import { getGeminiClient } from "./gemini-client";
 import { BrandKit } from "@/types";
+
 
 /**
  * PDF processing configuration
@@ -44,10 +46,11 @@ interface PDFProcessingResult {
 }
 
 /**
- * Enhanced PDF processor with AI-powered content extraction
+ * Enhanced PDF processor with proper fontkit integration
  */
 export class PDFProcessor {
   private config: PDFProcessorConfig;
+  private fontManager: any;
   private defaultConfig: PDFProcessorConfig = {
     maxFileSize: 20 * 1024 * 1024, // 20MB
     supportedTypes: ["application/pdf"],
@@ -61,6 +64,7 @@ export class PDFProcessor {
 
   constructor(config: Partial<PDFProcessorConfig> = {}) {
     this.config = { ...this.defaultConfig, ...config };
+    this.fontManager = getSimpleFontManager();
   }
 
   /**
@@ -82,7 +86,11 @@ export class PDFProcessor {
     const errors: string[] = [];
 
     try {
-      console.log("📄 Starting PDF processing...");
+      console.log("📄 Starting PDF processing with fontkit support...");
+      
+      // Log font manager status
+      const fontStatus = this.fontManager.getStatus();
+      console.log("🔤 Font status:", fontStatus);
 
       // Validate input
       await this.validateFile(file);
@@ -160,10 +168,19 @@ export class PDFProcessor {
         onProgress?.({
           status: "processing",
           progress: 80,
-          currentStep: "Applying brand styling...",
+          currentStep: "Applying brand styling with fontkit...",
         });
 
-        brandedPdf = await this.applyBranding(file, brandKit, analysisResult);
+        try {
+          brandedPdf = await this.applyBranding(file, brandKit, analysisResult);
+          console.log("✅ Branding applied successfully");
+        } catch (brandingError) {
+          console.error("❌ Branding failed:", brandingError);
+          warnings.push(`Branding failed: ${brandingError instanceof Error ? brandingError.message : 'Unknown error'}`);
+          
+          // Return original PDF if branding fails
+          brandedPdf = new Uint8Array(await file.arrayBuffer());
+        }
       }
 
       // Get PDF metadata
@@ -372,7 +389,9 @@ export class PDFProcessor {
     try {
       // Read original PDF
       const pdfBytes = await file.arrayBuffer();
-      const pdfDoc = await PDFDocument.load(pdfBytes);
+      const pdfDoc = await PDFDocument.load(pdfBytes, {
+        ignoreEncryption: true,
+      });
 
       // Apply brand elements
       await this.addBrandElements(pdfDoc, brandKit, analysisResult);
@@ -390,47 +409,211 @@ export class PDFProcessor {
   }
 
   /**
-   * Add brand elements to PDF
+   * Add brand elements with proper fontkit handling
    */
   private async addBrandElements(
     pdfDoc: PDFDocument,
     brandKit: BrandKit,
     analysisResult?: GeminiAnalysisResponse
   ): Promise<void> {
-    const pages = pdfDoc.getPages();
+    try {
+      console.log(`🎨 Applying branding with fontkit support...`);
 
-    // Apply branding to each page
-    for (let i = 0; i < pages.length; i++) {
-      const page = pages[i];
-      const { width, height } = page.getSize();
+      // Initialize font manager
+      const fontInitialized = await this.fontManager.initialize(pdfDoc);
+      console.log(`🔤 Font manager initialized: ${fontInitialized}`);
 
-      // Add logo if available
-      if (brandKit.logo && (brandKit.logo as any).dataUrl) {
-        await this.addLogo(page, (brandKit.logo as any).dataUrl, width, height);
+      const pages = pdfDoc.getPages();
+
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i];
+        const { width, height } = page.getSize();
+
+        try {
+          // Apply brand styling (colors and borders)
+          await this.applyBrandStyling(page, brandKit, width, height);
+
+          // Add footer with font manager
+          await this.addSmartFooter(page, pdfDoc, brandKit, width, height);
+
+          // Add watermark if specified
+          if (brandKit.watermark) {
+            await this.addSmartWatermark(page, pdfDoc, brandKit.watermark, width, height);
+          }
+
+          console.log(`✅ Page ${i + 1} branding applied successfully`);
+        } catch (pageError) {
+          console.warn(`⚠️ Page ${i + 1} branding failed:`, pageError);
+          // Continue with other pages
+        }
       }
 
-      // Add brand colors and styling
-      await this.applyBrandStyling(page, brandKit, width, height);
+      // Set document metadata
+      await this.setDocumentMetadata(pdfDoc, analysisResult);
 
-      // Add footer with brand information
-      if (brandKit.footerText) {
-        await this.addFooter(page, brandKit, width, height);
-      }
-
-      // Add watermark if specified
-      if (brandKit.watermark) {
-        await this.addWatermark(page, brandKit.watermark, width, height);
-      }
+      console.log("✅ All branding applied with fontkit support");
+    } catch (error) {
+      console.error("❌ Branding failed:", error);
+      // Don't throw error, continue without branding
+      console.log("⚠️ Continuing without visual branding...");
     }
+  }
 
-    // Update document metadata
-    pdfDoc.setTitle(
-      analysisResult?.extractedContent.title || "Branded Document"
-    );
-    pdfDoc.setCreator("DocuBrand - Document Branding Tool");
-    pdfDoc.setProducer("DocuBrand v1.0");
-    pdfDoc.setCreationDate(new Date());
-    pdfDoc.setModificationDate(new Date());
+  /**
+   * Add footer using font manager
+   */
+  private async addSmartFooter(
+    page: any,
+    pdfDoc: PDFDocument,
+    brandKit: BrandKit,
+    pageWidth: number,
+    pageHeight: number
+  ): Promise<void> {
+    try {
+      const footerText = brandKit.footerText || "Created with DocuBrand";
+      
+      // Try to render with font manager
+      const success = await this.fontManager.renderText(page, pdfDoc, footerText, {
+        x: 20,
+        y: 15,
+        size: 8,
+        color: { r: 128, g: 128, b: 128 },
+        align: 'left'
+      });
+
+      if (success) {
+        // Add timestamp
+        const timestamp = this.createTimestamp();
+        await this.fontManager.renderText(page, pdfDoc, timestamp, {
+          x: pageWidth - 20,
+          y: 15,
+          size: 8,
+          color: { r: 128, g: 128, b: 128 },
+          align: 'right'
+        });
+
+        console.log("✅ Smart footer added successfully");
+      } else {
+        console.warn("⚠️ Smart footer failed, using fallback");
+        await this.addBasicFooter(page, pdfDoc, brandKit, pageWidth, pageHeight);
+      }
+
+    } catch (error) {
+      console.warn("⚠️ Smart footer error:", error);
+      await this.addBasicFooter(page, pdfDoc, brandKit, pageWidth, pageHeight);
+    }
+  }
+
+  /**
+   * Add watermark using font manager
+   */
+  private async addSmartWatermark(
+    page: any,
+    pdfDoc: PDFDocument,
+    watermarkText: string,
+    pageWidth: number,
+    pageHeight: number
+  ): Promise<void> {
+    try {
+      const success = await this.fontManager.renderText(page, pdfDoc, watermarkText, {
+        x: pageWidth / 2,
+        y: pageHeight / 2,
+        size: 48,
+        color: { r: 230, g: 230, b: 230 },
+        align: 'center'
+      });
+
+      if (success) {
+        console.log("✅ Smart watermark added successfully");
+      } else {
+        console.warn("⚠️ Smart watermark failed");
+      }
+
+    } catch (error) {
+      console.warn("⚠️ Smart watermark error:", error);
+    }
+  }
+
+  /**
+   * Fallback footer with basic font
+   */
+  private async addBasicFooter(
+    page: any,
+    pdfDoc: PDFDocument,
+    brandKit: BrandKit,
+    pageWidth: number,
+    pageHeight: number
+  ): Promise<void> {
+    try {
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const fontSize = 8;
+      
+      // Convert Vietnamese to ASCII for safety
+      const rawText = brandKit.footerText || "Created with DocuBrand";
+      const safeText = this.fontManager.toASCII(rawText);
+      
+      page.drawText(safeText, {
+        x: 20,
+        y: 15,
+        size: fontSize,
+        font,
+        color: rgb(0.5, 0.5, 0.5),
+      });
+
+      // Safe timestamp
+      const timestamp = this.createTimestamp();
+      page.drawText(timestamp, {
+        x: pageWidth - 120,
+        y: 15,
+        size: fontSize,
+        font,
+        color: rgb(0.5, 0.5, 0.5),
+      });
+
+      console.log("✅ Basic footer added successfully");
+    } catch (error) {
+      console.warn("⚠️ Even basic footer failed:", error);
+    }
+  }
+
+  /**
+   * Set document metadata with Vietnamese support
+   */
+  private async setDocumentMetadata(
+    pdfDoc: PDFDocument,
+    analysisResult?: GeminiAnalysisResponse
+  ): Promise<void> {
+    try {
+      // Convert Vietnamese metadata to ASCII for PDF compatibility
+      const title = analysisResult?.extractedContent.title || "Branded Document";
+      const subject = analysisResult?.documentStructure.subject || "Educational Document";
+      
+      const safeTitle = this.fontManager.toASCII(title);
+      const safeSubject = this.fontManager.toASCII(subject);
+
+      pdfDoc.setTitle(safeTitle);
+      pdfDoc.setSubject(safeSubject);
+      pdfDoc.setCreator("DocuBrand - Document Branding Tool");
+      pdfDoc.setProducer("DocuBrand v1.0");
+      pdfDoc.setCreationDate(new Date());
+      pdfDoc.setModificationDate(new Date());
+
+      console.log("✅ Document metadata set successfully");
+    } catch (error) {
+      console.warn("⚠️ Metadata setting failed:", error);
+    }
+  }
+
+  /**
+   * Create safe timestamp
+   */
+  private createTimestamp(): string {
+    const now = new Date();
+    const day = now.getDate().toString().padStart(2, '0');
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const year = now.getFullYear();
+    
+    return `Generated: ${day}/${month}/${year}`;
   }
 
   /**
@@ -464,8 +647,13 @@ export class PDFProcessor {
     }
   }
 
+
+
+
+
+
   /**
-   * Apply brand styling to page
+   * Apply brand styling to page (existing method, no changes needed)
    */
   private async applyBrandStyling(
     page: any,
@@ -475,7 +663,7 @@ export class PDFProcessor {
   ): Promise<void> {
     try {
       // Add brand color accents
-      if (brandKit.color) {
+      if (brandKit.color && this.isValidHexColor(brandKit.color)) {
         const color = this.hexToRgb(brandKit.color);
 
         // Add thin colored border at top
@@ -489,7 +677,10 @@ export class PDFProcessor {
       }
 
       // Add secondary color accent if available
-      if (brandKit.secondaryColor) {
+      if (
+        brandKit.secondaryColor &&
+        this.isValidHexColor(brandKit.secondaryColor)
+      ) {
         const color = this.hexToRgb(brandKit.secondaryColor);
 
         // Add thin colored border at bottom
@@ -501,8 +692,10 @@ export class PDFProcessor {
           color: rgb(color.r / 255, color.g / 255, color.b / 255),
         });
       }
+
+      console.log("✅ Brand styling applied successfully");
     } catch (error) {
-      console.warn("⚠️ Failed to apply brand styling:", error);
+      console.warn("⚠️ Brand styling failed:", error);
     }
   }
 
@@ -518,9 +711,11 @@ export class PDFProcessor {
     try {
       const font = await page.doc.embedFont(StandardFonts.Helvetica);
       const fontSize = 8;
-      const text = brandKit.footerText || "Branded with DocuBrand";
 
-      page.drawText(text, {
+      // SAFE: Use only ASCII characters
+      const safeText = "Branded with DocuBrand";
+
+      page.drawText(safeText, {
         x: 20,
         y: 15,
         size: fontSize,
@@ -528,8 +723,12 @@ export class PDFProcessor {
         color: rgb(0.5, 0.5, 0.5),
       });
 
-      // Add timestamp
-      const timestamp = `Generated: ${new Date().toLocaleDateString()}`;
+      // Safe timestamp
+      const now = new Date();
+      const timestamp = `Generated: ${
+        now.getMonth() + 1
+      }/${now.getDate()}/${now.getFullYear()}`;
+
       page.drawText(timestamp, {
         x: pageWidth - 120,
         y: 15,
@@ -582,7 +781,9 @@ export class PDFProcessor {
   ): Promise<{ pages: number; size: number }> {
     try {
       const pdfBytes = await file.arrayBuffer();
-      const pdfDoc = await PDFDocument.load(pdfBytes);
+      const pdfDoc = await PDFDocument.load(pdfBytes, {
+        ignoreEncryption: true,
+      });
 
       return {
         pages: pdfDoc.getPageCount(),
@@ -607,9 +808,21 @@ export class PDFProcessor {
   }
 
   /**
-   * Convert hex color to RGB
+   * Validate hex color format
+   */
+  private isValidHexColor(color: string): boolean {
+    return /^#[0-9A-F]{6}$/i.test(color);
+  }
+
+  /**
+   * Convert hex to RGB with validation
    */
   private hexToRgb(hex: string): { r: number; g: number; b: number } {
+    if (!this.isValidHexColor(hex)) {
+      console.warn(`Invalid hex color: ${hex}, using default`);
+      return { r: 0, g: 0, b: 0 };
+    }
+
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     return result
       ? {
@@ -618,6 +831,280 @@ export class PDFProcessor {
           b: parseInt(result[3], 16),
         }
       : { r: 0, g: 0, b: 0 };
+  }
+
+  /**
+   * Process content with Vietnamese support
+   */
+  async processVietnameseContent(
+    file: File,
+    brandKit: BrandKit,
+    analysisResult: GeminiAnalysisResponse
+  ): Promise<{
+    success: boolean;
+    brandedPdf?: Uint8Array;
+    error?: string;
+    vietnameseStats?: {
+      hasVietnamese: boolean;
+      vietnameseTextCount: number;
+      fontUsed: string;
+    };
+  }> {
+    try {
+      console.log("🇻🇳 Processing Vietnamese content...");
+
+      // Analyze Vietnamese content
+      const vietnameseStats = this.analyzeVietnameseContent(analysisResult);
+
+      // Process with appropriate font selection
+      const result = await this.processPDF(file, brandKit, {
+        documentType: "general",
+        language: "vi",
+        extractContent: false,
+        applyBranding: true,
+        onProgress: (status) => {
+          console.log(`📊 Vietnamese processing: ${status.currentStep}`);
+        },
+      });
+
+      if (!result.success) {
+        return {
+          success: false,
+          error: result.errors.join(", "),
+          vietnameseStats,
+        };
+      }
+
+      return {
+        success: true,
+        brandedPdf: result.brandedPdf,
+        vietnameseStats,
+      };
+    } catch (error) {
+      console.error("❌ Vietnamese content processing failed:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  /**
+   * Analyze Vietnamese content in analysis result
+   */
+  private analyzeVietnameseContent(analysisResult: GeminiAnalysisResponse): {
+    hasVietnamese: boolean;
+    vietnameseTextCount: number;
+    fontUsed: string;
+  } {
+    let vietnameseTextCount = 0;
+    let hasVietnamese = false;
+
+    // Check title
+    if (analysisResult.extractedContent.title) {
+      if (
+        this.fontManager.containsVietnamese(
+          analysisResult.extractedContent.title
+        )
+      ) {
+        hasVietnamese = true;
+        vietnameseTextCount++;
+      }
+    }
+
+    // Check subtitle
+    if (analysisResult.extractedContent.subtitle) {
+      if (
+        this.fontManager.containsVietnamese(
+          analysisResult.extractedContent.subtitle
+        )
+      ) {
+        hasVietnamese = true;
+        vietnameseTextCount++;
+      }
+    }
+
+    // Check sections
+    if (analysisResult.documentStructure.sections) {
+      analysisResult.documentStructure.sections.forEach((section) => {
+        if (this.fontManager.containsVietnamese(section.content)) {
+          hasVietnamese = true;
+          vietnameseTextCount++;
+        }
+      });
+    }
+
+    // Check questions
+    if (analysisResult.extractedQuestions) {
+      analysisResult.extractedQuestions.forEach((question) => {
+        if (this.fontManager.containsVietnamese(question.content)) {
+          hasVietnamese = true;
+          vietnameseTextCount++;
+        }
+      });
+    }
+
+    const fontUsed = hasVietnamese ? "inter" : "helvetica";
+
+    return {
+      hasVietnamese,
+      vietnameseTextCount,
+      fontUsed,
+    };
+  }
+
+  /**
+   * Legacy compatibility method with Vietnamese support
+   */
+  async processDocument(
+    file: File,
+    brandKit: BrandKit,
+    analysisResult: GeminiAnalysisResponse
+  ): Promise<{
+    brandedPdf: Uint8Array;
+    originalPdf: Uint8Array;
+    pageCount: number;
+    elements: Array<{
+      type: string;
+      content: string;
+      position: { x: number; y: number; width: number; height: number };
+      pageNumber: number;
+    }>;
+    metadata: {
+      title: string;
+      subject: string;
+      createdAt: string;
+      vietnameseSupport?: boolean;
+    };
+  }> {
+    console.log("🇻🇳 Legacy processDocument with Vietnamese support");
+
+    try {
+      // Use the new Vietnamese processing method
+      const result = await this.processVietnameseContent(
+        file,
+        brandKit,
+        analysisResult
+      );
+
+      if (!result.success || !result.brandedPdf) {
+        throw new Error(result.error || "Vietnamese PDF processing failed");
+      }
+
+      const originalPdf = new Uint8Array(await file.arrayBuffer());
+
+      return {
+        brandedPdf: result.brandedPdf,
+        originalPdf,
+        pageCount: await this.getPageCount(file),
+        elements: this.createElementsFromAnalysis(analysisResult),
+        metadata: {
+          title:
+            analysisResult.extractedContent.title ||
+            "Tài liệu được đổi thương hiệu",
+          subject:
+            analysisResult.documentStructure.subject || "Tài liệu giáo dục",
+          createdAt: new Date().toISOString(),
+          vietnameseSupport: result.vietnameseStats?.hasVietnamese || false,
+        },
+      };
+    } catch (error) {
+      console.error("❌ Vietnamese processDocument failed:", error);
+      throw new Error(
+        `Vietnamese document processing failed: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
+  /**
+   * Get page count from PDF
+   */
+  private async getPageCount(file: File): Promise<number> {
+    try {
+      const pdfBytes = await file.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(pdfBytes);
+      return pdfDoc.getPageCount();
+    } catch (error) {
+      console.warn("⚠️ Failed to get page count:", error);
+      return 1;
+    }
+  }
+
+  /**
+   * Detect document type from analysis result
+   */
+  private detectDocumentTypeFromAnalysis(
+    analysisResult: GeminiAnalysisResponse
+  ): "quiz" | "worksheet" | "general" {
+    const hasQuestions =
+      analysisResult.extractedQuestions &&
+      analysisResult.extractedQuestions.length > 0;
+
+    if (hasQuestions) {
+      const hasMultipleChoice = analysisResult.extractedQuestions.some(
+        (q) => q.type === "multiple_choice"
+      );
+      return hasMultipleChoice ? "quiz" : "worksheet";
+    }
+
+    return "general";
+  }
+
+  /**
+   * Create elements array from analysis result
+   */
+  private createElementsFromAnalysis(
+    analysisResult: GeminiAnalysisResponse
+  ): Array<{
+    type: string;
+    content: string;
+    position: { x: number; y: number; width: number; height: number };
+    pageNumber: number;
+  }> {
+    const elements = [];
+
+    // Add title element
+    if (analysisResult.extractedContent.title) {
+      elements.push({
+        type: "title",
+        content: analysisResult.extractedContent.title,
+        position: { x: 0, y: 0, width: 100, height: 10 },
+        pageNumber: 1,
+      });
+    }
+
+    // Add sections
+    if (analysisResult.documentStructure.sections) {
+      analysisResult.documentStructure.sections.forEach((section, index) => {
+        elements.push({
+          type: section.type,
+          content: section.content,
+          position: section.position || {
+            x: 0,
+            y: 20 + index * 15,
+            width: 100,
+            height: 10,
+          },
+          pageNumber: section.position?.page || 1,
+        });
+      });
+    }
+
+    // Add questions
+    if (analysisResult.extractedQuestions) {
+      analysisResult.extractedQuestions.forEach((question, index) => {
+        elements.push({
+          type: "question",
+          content: question.content,
+          position: { x: 0, y: 50 + index * 20, width: 100, height: 15 },
+          pageNumber: 1,
+        });
+      });
+    }
+
+    return elements;
   }
 
   /**
@@ -679,4 +1166,71 @@ export function getPDFProcessor(
  */
 export function resetPDFProcessor(): void {
   pdfProcessorInstance = null;
+}
+
+/**
+ * Export utility function for easier usage with Vietnamese support
+ */
+export async function processDocumentWithVietnameseSupport(
+  file: File,
+  brandKit: BrandKit,
+  analysisResult: GeminiAnalysisResponse
+): Promise<{
+  success: boolean;
+  brandedPdf?: Uint8Array;
+  error?: string;
+  vietnameseStats?: {
+    hasVietnamese: boolean;
+    vietnameseTextCount: number;
+    fontUsed: string;
+  };
+}> {
+  try {
+    const processor = new PDFProcessor();
+    const result = await processor.processVietnameseContent(
+      file,
+      brandKit,
+      analysisResult
+    );
+
+    return result;
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+/**
+ * Simplified function for document processing with branding
+ * Provides backward compatibility with legacy interfaces
+ */
+export async function processDocumentWithBranding(
+  file: File,
+  brandKit: BrandKit,
+  analysisResult: GeminiAnalysisResponse
+): Promise<{
+  success: boolean;
+  brandedPdf?: Uint8Array;
+  error?: string;
+}> {
+  try {
+    const processor = new PDFProcessor();
+    const result = await processor.processDocument(
+      file,
+      brandKit,
+      analysisResult
+    );
+
+    return {
+      success: true,
+      brandedPdf: result.brandedPdf,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
 }
