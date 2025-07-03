@@ -1,0 +1,338 @@
+// Generate PDF Button Debug & Fix Implementation Plan
+// PRIORITY: CRITICAL - Fix non-functioning Generate PDF button
+
+// 1. INVESTIGATION CHECKLIST
+// Files to examine:
+// - src/app/page.tsx - handleApproveContent function
+// - src/components/VerificationUI.tsx - Button event binding
+// - src/lib/pdf-processor.ts - PDF generation pipeline
+
+// 2. DEBUG STEPS
+
+// Step 1: Add Debug Logging to handleApproveContent
+// File: src/app/page.tsx
+const handleApproveContent = async () => {
+  console.log('🔍 DEBUG: handleApproveContent called');
+  console.log('📊 editedAnalysisResult:', editedAnalysisResult);
+  console.log('📄 uploadedFile:', uploadedFile);
+  console.log('🎨 brandKit:', brandKit);
+
+  if (!editedAnalysisResult || !uploadedFile) {
+    console.error('❌ Missing required data:', { editedAnalysisResult, uploadedFile });
+    alert('Missing required data for PDF generation');
+    return;
+  }
+
+  setCurrentStep('generating');
+  setProcessingStatus({ status: 'processing', message: 'Generating branded PDF...' });
+
+  try {
+    console.log('📦 Starting PDF generation process...');
+    
+    // Import PDF processor dynamically
+    const { PDFProcessor } = await import('@/lib/pdf-processor');
+    const { downloadPDF, generateBrandedFilename } = await import('@/lib/download');
+    
+    console.log('✅ PDF processor imported successfully');
+    
+    const processor = new PDFProcessor();
+    
+    // Process with verified content and branding
+    console.log('🔄 Processing document with brand kit...');
+    const result = await processor.processDocument(uploadedFile, brandKit, editedAnalysisResult);
+    
+    console.log('✅ PDF processing completed:', result);
+    
+    setProcessingResult(result);
+    setProcessingStatus({ status: 'ready', message: 'Branded PDF ready for download!' });
+    setCurrentStep('complete');
+    
+    // Auto-download the file
+    if (result.brandedPdf) {
+      console.log('📥 Auto-downloading PDF...');
+      const filename = generateBrandedFilename(uploadedFile.name);
+      downloadPDF(result.brandedPdf, filename);
+      console.log('✅ Download initiated');
+    } else {
+      console.warn('⚠️ No branded PDF in result');
+    }
+    
+  } catch (error) {
+    console.error('❌ PDF generation failed:', error);
+    console.error('📊 Error details:', {
+      message: error.message,
+      stack: error.stack,
+      editedAnalysisResult,
+      uploadedFile: uploadedFile?.name,
+      brandKit
+    });
+    
+    setProcessingStatus({ 
+      status: 'error', 
+      message: error instanceof Error ? error.message : 'Failed to generate PDF' 
+    });
+    setCurrentStep('verification');
+    
+    // Better error feedback
+    alert(`PDF Generation Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+};
+
+// Step 2: Verify Button Event Binding
+// File: src/components/VerificationUI.tsx
+const handleApprove = useCallback(() => {
+  console.log('🔍 DEBUG: VerificationUI handleApprove called');
+  console.log('📊 Validation errors:', validationErrors);
+  console.log('🎛️ Processing status:', isProcessing);
+  
+  if (validationErrors.length > 0) {
+    console.warn('⚠️ Validation errors present:', validationErrors);
+    alert('Please fix validation errors before proceeding');
+    return;
+  }
+  
+  setHasUnsavedChanges(false);
+  console.log('✅ Calling onApprove callback');
+  onApprove();
+}, [validationErrors, onApprove, isProcessing]);
+
+// Step 3: Enhanced Button with Better Feedback
+// File: src/components/VerificationUI.tsx
+<button
+  onClick={handleApprove}
+  disabled={isProcessing || validationErrors.length > 0}
+  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+>
+  {isProcessing ? (
+    <>
+      <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+      Generating...
+    </>
+  ) : (
+    <>
+      <span>⚡</span>
+      Generate Branded PDF
+    </>
+  )}
+</button>
+
+// Step 4: Debug PDF Processor
+// File: src/lib/pdf-processor.ts
+export class PDFProcessor {
+  async processDocument(
+    file: File,
+    brandKit: BrandKit,
+    analysisResult: GeminiAnalysisResponse
+  ): Promise<PDFProcessingResult> {
+    console.log('🔍 DEBUG: PDFProcessor.processDocument called');
+    console.log('📄 File:', file.name, file.size, 'bytes');
+    console.log('🎨 Brand Kit:', brandKit);
+    console.log('📊 Analysis Result:', analysisResult);
+
+    try {
+      // Load PDF
+      console.log('📖 Loading PDF...');
+      const arrayBuffer = await file.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(arrayBuffer);
+      console.log('✅ PDF loaded successfully');
+
+      // Process pages
+      const pages = pdfDoc.getPages();
+      console.log(`📄 Processing ${pages.length} pages...`);
+
+      const elements: ProcessedElement[] = [];
+      
+      for (let i = 0; i < pages.length; i++) {
+        console.log(`🔄 Processing page ${i + 1}/${pages.length}`);
+        const page = pages[i];
+        const { width, height } = page.getSize();
+        
+        // Apply branding
+        await this.applyBrandingToPage(page, brandKit, width, height);
+        
+        // Add content from analysis
+        await this.addContentToPage(page, analysisResult, width, height, i);
+        
+        elements.push({
+          type: 'page',
+          content: `Page ${i + 1}`,
+          position: { x: 0, y: 0, width, height },
+          pageNumber: i + 1
+        });
+      }
+
+      console.log('💾 Saving PDF...');
+      const pdfBytes = await pdfDoc.save();
+      console.log('✅ PDF saved successfully');
+
+      return {
+        brandedPdf: pdfBytes,
+        originalPdf: arrayBuffer,
+        pageCount: pages.length,
+        elements,
+        metadata: {
+          title: analysisResult.extractedContent.title,
+          subject: analysisResult.documentStructure.subject,
+          createdAt: new Date().toISOString()
+        }
+      };
+
+    } catch (error) {
+      console.error('❌ PDF processing error:', error);
+      throw new Error(`PDF processing failed: ${error.message}`);
+    }
+  }
+
+  private async applyBrandingToPage(
+    page: PDFPage,
+    brandKit: BrandKit,
+    width: number,
+    height: number
+  ): Promise<void> {
+    console.log('🎨 Applying branding to page...');
+    
+    try {
+      // Add logo
+      if (brandKit.logo.dataUrl) {
+        console.log('🖼️ Adding logo...');
+        await this.addLogoToPage(page, brandKit.logo.dataUrl, width, height);
+      }
+
+      // Add brand colors
+      if (brandKit.color) {
+        console.log('🎨 Adding brand colors...');
+        await this.applyBrandStyling(page, brandKit, width, height);
+      }
+
+      // Add footer
+      console.log('📄 Adding footer...');
+      await this.addFooter(page, brandKit, width, height);
+      
+      console.log('✅ Branding applied successfully');
+      
+    } catch (error) {
+      console.error('❌ Branding error:', error);
+      throw new Error(`Branding failed: ${error.message}`);
+    }
+  }
+
+  // ... rest of existing methods with debug logging
+}
+
+// Step 5: Test Cases for Debugging
+// File: src/app/page.tsx (add to component)
+const debugPDFGeneration = async () => {
+  console.log('🔍 DEBUG: Manual PDF generation test');
+  
+  if (!uploadedFile) {
+    console.error('❌ No uploaded file');
+    return;
+  }
+
+  if (!analysisResult) {
+    console.error('❌ No analysis result');
+    return;
+  }
+
+  try {
+    const { PDFProcessor } = await import('@/lib/pdf-processor');
+    const processor = new PDFProcessor();
+    
+    console.log('🧪 Testing PDF generation with current data...');
+    const result = await processor.processDocument(uploadedFile, brandKit, analysisResult);
+    
+    console.log('✅ Test successful:', result);
+    
+    // Test download
+    const { downloadPDF, generateBrandedFilename } = await import('@/lib/download');
+    const filename = generateBrandedFilename(uploadedFile.name);
+    downloadPDF(result.brandedPdf, filename);
+    
+  } catch (error) {
+    console.error('❌ Test failed:', error);
+    alert(`Test failed: ${error.message}`);
+  }
+};
+
+// Add debug button to UI (temporary)
+{process.env.NODE_ENV === 'development' && (
+  <button
+    onClick={debugPDFGeneration}
+    className="btn-secondary text-sm"
+  >
+    🧪 Debug PDF Generation
+  </button>
+)}
+
+// Step 6: Common Issues to Check
+
+// Issue 1: Missing dependencies
+// Check if pdf-lib is properly installed:
+// pnpm list pdf-lib
+
+// Issue 2: File size limits
+// Check if file is too large for processing
+if (file.size > 10 * 1024 * 1024) { // 10MB limit
+  throw new Error('File too large for processing');
+}
+
+// Issue 3: Brand kit validation
+const validateBrandKit = (brandKit: BrandKit): boolean => {
+  console.log('🔍 Validating brand kit:', brandKit);
+  
+  if (!brandKit.color) {
+    console.warn('⚠️ No primary color in brand kit');
+    return false;
+  }
+  
+  if (!brandKit.font) {
+    console.warn('⚠️ No font in brand kit');
+    return false;
+  }
+  
+  return true;
+};
+
+// Issue 4: Analysis result validation
+const validateAnalysisResult = (result: GeminiAnalysisResponse): boolean => {
+  console.log('🔍 Validating analysis result:', result);
+  
+  if (!result.extractedContent) {
+    console.warn('⚠️ No extracted content');
+    return false;
+  }
+  
+  if (!result.documentStructure) {
+    console.warn('⚠️ No document structure');
+    return false;
+  }
+  
+  return true;
+};
+
+// Step 7: Error Handling Improvements
+// Add try-catch around all PDF operations
+// Add user-friendly error messages
+// Add retry mechanism for transient errors
+
+// Step 8: Testing Checklist
+// [ ] Test with different file types
+// [ ] Test with different brand kit configurations
+// [ ] Test with empty analysis results
+// [ ] Test with large files
+// [ ] Test with corrupted files
+// [ ] Test network failures
+// [ ] Test browser compatibility
+
+// Step 9: Performance Monitoring
+// Add performance timing
+const startTime = performance.now();
+// ... PDF processing ...
+const endTime = performance.now();
+console.log(`⏱️ PDF generation took ${endTime - startTime} milliseconds`);
+
+// Step 10: User Feedback Improvements
+// Add progress indicators
+// Add success/failure notifications
+// Add retry button for failed operations
+// Add cancel button for long operations

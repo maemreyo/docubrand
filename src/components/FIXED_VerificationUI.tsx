@@ -1,231 +1,32 @@
+// src/components/VerificationUI.tsx
 // UPDATED: 2025-07-03 - Enhanced layout with Radix UI Tabs for better UX
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { GeminiAnalysisResponse, ExtractedQuestion, DocumentSection } from '@/types/gemini';
-import { EnhancedDocumentSection, ContentType } from '@/types/editor';
+import { useState, useCallback, useEffect } from 'react';
+import { DirectPDFViewer } from './DirectPDFViewer';
+import { ContentEditor } from './ContentEditor';
 import { SectionEditor } from './editor/SectionEditor';
 import { QuestionEditor } from './editor/QuestionEditor';
-import { ContentEditor } from './ContentEditor';
-import { DirectPDFViewer } from './DirectPDFViewer';
-import { contentFormatter } from './editor/ContentFormatter';
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Collapsible from '@radix-ui/react-collapsible';
 import { ChevronDownIcon, ChevronUpIcon, FileTextIcon, HelpCircleIcon, EyeIcon } from 'lucide-react';
 
-interface VerificationUIProps {
-  file: File;
-  analysisResult: GeminiAnalysisResponse;
-  onContentUpdated: (updatedResult: GeminiAnalysisResponse) => void;
-  onApprove: () => void;
-  onReject: () => void;
-  isProcessing?: boolean;
-}
+// ... existing imports and types ...
 
-export function VerificationUI({
-  file,
-  analysisResult,
-  onContentUpdated,
-  onApprove,
-  onReject,
-  isProcessing = false
+export function VerificationUI({ 
+  file, 
+  analysisResult, 
+  onApprove, 
+  onReject, 
+  onContentUpdated 
 }: VerificationUIProps) {
-  const [editedResult, setEditedResult] = useState<GeminiAnalysisResponse>(analysisResult);
-  const [pdfUrl, setPdfUrl] = useState<string>('');
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  const [activeSection, setActiveSection] = useState<string | null>(null);
+  // ... existing state variables ...
+
   const [activeTab, setActiveTab] = useState<'sections' | 'questions' | 'overview'>('sections');
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
 
-  // Enhanced sections with editor-specific properties
-  const [enhancedSections, setEnhancedSections] = useState<EnhancedDocumentSection[]>(() => 
-    convertToEnhancedSections(analysisResult.documentStructure.sections)
-  );
-
-  // Create PDF preview URL
-  useEffect(() => {
-    const url = URL.createObjectURL(file);
-    setPdfUrl(url);
-    
-    return () => {
-      URL.revokeObjectURL(url);
-    };
-  }, [file]);
-
-  // Update parent when content changes
-  useEffect(() => {
-    onContentUpdated(editedResult);
-    setHasUnsavedChanges(true);
-  }, [editedResult, onContentUpdated]);
-
-  // Content validation
-  useEffect(() => {
-    const errors: string[] = [];
-    
-    if (!editedResult.extractedContent.title.trim()) {
-      errors.push('Document title is required');
-    }
-    
-    if (editedResult.extractedQuestions.length === 0 && enhancedSections.length === 0) {
-      errors.push('At least one question or content section is required');
-    }
-
-    editedResult.extractedQuestions.forEach((q, index) => {
-      if (!q.content.trim()) {
-        errors.push(`Question ${index + 1} content is empty`);
-      }
-      if (q.type === 'multiple_choice' && (!q.options || q.options.length < 2)) {
-        errors.push(`Question ${index + 1} needs at least 2 options`);
-      }
-    });
-
-    // Validate enhanced sections
-    enhancedSections.forEach((section, index) => {
-      if (section.validationErrors && section.validationErrors.length > 0) {
-        errors.push(`Section ${index + 1}: ${section.validationErrors.join(', ')}`);
-      }
-    });
-
-    setValidationErrors(errors);
-  }, [editedResult, enhancedSections]);
-
-  // Convert regular sections to enhanced sections
-  function convertToEnhancedSections(sections: DocumentSection[]): EnhancedDocumentSection[] {
-    return sections.map(section => ({
-      ...section,
-      isEditing: false,
-      isDirty: false,
-      lastModified: Date.now(),
-      wordCount: contentFormatter.getWordCount(section.content),
-      characterCount: contentFormatter.getCharacterCount(section.content),
-      validationErrors: [],
-      isValid: true,
-      // Auto-detect content type
-      type: contentFormatter.detectContentType(section.content) as ContentType
-    }));
-  }
-
-  // Enhanced section update handler
-  const updateEnhancedSection = useCallback((sectionId: string, updatedSection: EnhancedDocumentSection) => {
-    setEnhancedSections(prev => 
-      prev.map(s => s.id === sectionId ? updatedSection : s)
-    );
-
-    // Also update the main analysis result
-    setEditedResult(prev => ({
-      ...prev,
-      documentStructure: {
-        ...prev.documentStructure,
-        sections: enhancedSections.map(s => 
-          s.id === sectionId ? {
-            id: updatedSection.id,
-            type: updatedSection.type,
-            content: updatedSection.content,
-            position: updatedSection.position,
-            confidence: updatedSection.confidence
-          } : {
-            id: s.id,
-            type: s.type,
-            content: s.content,
-            position: s.position,
-            confidence: s.confidence
-          }
-        )
-      }
-    }));
-  }, [enhancedSections]);
-
-  // Legacy section update handler (for backward compatibility)
-  const updateSection = useCallback((sectionId: string, updatedSection: DocumentSection) => {
-    setEditedResult(prev => ({
-      ...prev,
-      documentStructure: {
-        ...prev.documentStructure,
-        sections: prev.documentStructure.sections.map(s =>
-          s.id === sectionId ? updatedSection : s
-        )
-      }
-    }));
-  }, []);
-
-  const updateQuestion = useCallback((questionId: string, updatedQuestion: ExtractedQuestion) => {
-    setEditedResult(prev => ({
-      ...prev,
-      extractedQuestions: prev.extractedQuestions.map(q =>
-        q.id === questionId ? updatedQuestion : q
-      )
-    }));
-  }, []);
-
-  const updateDocumentInfo = useCallback((field: string, value: string) => {
-    if (field === 'title' || field === 'subtitle') {
-      setEditedResult(prev => ({
-        ...prev,
-        extractedContent: {
-          ...prev.extractedContent,
-          [field]: value
-        }
-      }));
-    } else if (field === 'subject') {
-      setEditedResult(prev => ({
-        ...prev,
-        documentStructure: {
-          ...prev.documentStructure,
-          subject: value
-        }
-      }));
-    }
-  }, []);
-
-  const addNewQuestion = useCallback(() => {
-    const newQuestion: ExtractedQuestion = {
-      id: `q_${Date.now()}`,
-      number: String(editedResult.extractedQuestions.length + 1),
-      content: '',
-      type: 'short_answer'
-    };
-
-    setEditedResult(prev => ({
-      ...prev,
-      extractedQuestions: [...prev.extractedQuestions, newQuestion]
-    }));
-  }, [editedResult.extractedQuestions.length]);
-
-  const removeQuestion = useCallback((questionId: string) => {
-    setEditedResult(prev => ({
-      ...prev,
-      extractedQuestions: prev.extractedQuestions.filter(q => q.id !== questionId)
-    }));
-  }, []);
-
-  const addNewSection = useCallback(() => {
-    const newSection: EnhancedDocumentSection = {
-      id: `section_${Date.now()}`,
-      type: 'text',
-      content: '',
-      position: { page: 1, x: 0, y: 0, width: 100, height: 20 },
-      confidence: 1.0,
-      isEditing: true,
-      isDirty: false,
-      lastModified: Date.now(),
-      wordCount: 0,
-      characterCount: 0,
-      validationErrors: [],
-      isValid: true
-    };
-
-    setEnhancedSections(prev => [...prev, newSection]);
-    setActiveSection(newSection.id);
-  }, []);
-
-  const removeSection = useCallback((sectionId: string) => {
-    setEnhancedSections(prev => prev.filter(s => s.id !== sectionId));
-    if (activeSection === sectionId) {
-      setActiveSection(null);
-    }
-  }, [activeSection]);
+  // ... existing functions ...
 
   const toggleSectionCollapse = useCallback((sectionId: string) => {
     setCollapsedSections(prev => {
@@ -238,25 +39,6 @@ export function VerificationUI({
       return newSet;
     });
   }, []);
-
-  const handleApprove = useCallback(() => {
-    if (validationErrors.length > 0) {
-      alert('Please fix validation errors before proceeding');
-      return;
-    }
-    setHasUnsavedChanges(false);
-    onApprove();
-  }, [validationErrors, onApprove]);
-
-  const handleReject = useCallback(() => {
-    if (hasUnsavedChanges) {
-      if (!confirm('You have unsaved changes. Are you sure you want to start over?')) {
-        return;
-      }
-    }
-    setHasUnsavedChanges(false);
-    onReject();
-  }, [hasUnsavedChanges, onReject]);
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
@@ -555,7 +337,7 @@ export function VerificationUI({
                     </div>
                     <div className="text-center">
                       <div className="text-2xl font-bold text-blue-600">
-                        {enhancedSections.reduce((acc, s) => acc + (s.wordCount || 0), 0)}
+                        {enhancedSections.reduce((acc, s) => acc + s.wordCount, 0)}
                       </div>
                       <div className="text-blue-800">Words</div>
                     </div>
@@ -609,14 +391,7 @@ export function VerificationUI({
               disabled={isProcessing || validationErrors.length > 0}
               className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isProcessing ? (
-                <>
-                  <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2" />
-                  Generating...
-                </>
-              ) : (
-                'Generate Branded PDF →'
-              )}
+              {isProcessing ? 'Generating...' : 'Generate Branded PDF'}
             </button>
           </div>
         </div>
@@ -624,4 +399,3 @@ export function VerificationUI({
     </div>
   );
 }
-

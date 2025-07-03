@@ -83,20 +83,36 @@ export default function HomePage() {
 
   // Handle approval to generate branded PDF
   const handleApproveContent = async () => {
-    if (!editedAnalysisResult || !uploadedFile) return;
+    console.log('🔍 DEBUG: handleApproveContent called');
+    console.log('📊 editedAnalysisResult:', editedAnalysisResult);
+    console.log('📄 uploadedFile:', uploadedFile);
+    console.log('🎨 brandKit:', brandKit);
+
+    if (!editedAnalysisResult || !uploadedFile) {
+      console.error('❌ Missing required data:', { editedAnalysisResult, uploadedFile });
+      alert('Missing required data for PDF generation');
+      return;
+    }
 
     setCurrentStep('generating');
     setProcessingStatus({ status: 'processing', message: 'Generating branded PDF...' });
 
     try {
+      console.log('📦 Starting PDF generation process...');
+      
       // Import PDF processor dynamically
       const { PDFProcessor } = await import('@/lib/pdf-processor');
       const { downloadPDF, generateBrandedFilename } = await import('@/lib/download');
       
+      console.log('✅ PDF processor imported successfully');
+      
       const processor = new PDFProcessor();
       
       // Process with verified content and branding
+      console.log('🔄 Processing document with brand kit...');
       const result = await processor.processDocument(uploadedFile, brandKit, editedAnalysisResult);
+      
+      console.log('✅ PDF processing completed:', result);
       
       setProcessingResult(result);
       setProcessingStatus({ status: 'ready', message: 'Branded PDF ready for download!' });
@@ -104,17 +120,24 @@ export default function HomePage() {
       
       // Auto-download the file
       if (result.brandedPdf) {
+        console.log('📥 Auto-downloading PDF...');
         const filename = generateBrandedFilename(uploadedFile.name);
         downloadPDF(result.brandedPdf, filename);
+        console.log('✅ Download initiated');
+      } else {
+        console.warn('⚠️ No branded PDF in result');
       }
       
     } catch (error) {
-      console.error('PDF generation failed:', error);
+      console.error('❌ PDF generation failed:', error);
       setProcessingStatus({ 
         status: 'error', 
         message: error instanceof Error ? error.message : 'Failed to generate PDF' 
       });
       setCurrentStep('verification');
+      
+      // Better error feedback
+      alert(`PDF Generation Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -126,6 +149,39 @@ export default function HomePage() {
     setEditedAnalysisResult(null);
     setProcessingResult(null);
     setProcessingStatus({ status: 'idle' });
+  };
+
+  const debugPDFGeneration = async () => {
+    console.log('🔍 DEBUG: Manual PDF generation test');
+    
+    if (!uploadedFile) {
+      console.error('❌ No uploaded file');
+      return;
+    }
+
+    if (!analysisResult) {
+      console.error('❌ No analysis result');
+      return;
+    }
+
+    try {
+      const { PDFProcessor } = await import('@/lib/pdf-processor');
+      const processor = new PDFProcessor();
+      
+      console.log('🧪 Testing PDF generation with current data...');
+      const result = await processor.processDocument(uploadedFile, brandKit, analysisResult);
+      
+      console.log('✅ Test successful:', result);
+      
+      // Test download
+      const { downloadPDF, generateBrandedFilename } = await import('@/lib/download');
+      const filename = generateBrandedFilename(uploadedFile.name);
+      downloadPDF(result.brandedPdf, filename);
+      
+    } catch (error) {
+      console.error('❌ Test failed:', error);
+      alert(`Test failed: ${error.message}`);
+    }
   };
 
   // Handle manual download
@@ -280,6 +336,14 @@ export default function HomePage() {
             </div>
           </div>
         </div>
+        {process.env.NODE_ENV === 'development' && (
+          <button
+            onClick={debugPDFGeneration}
+            className="btn-secondary text-sm"
+          >
+            🧪 Debug PDF Generation
+          </button>
+        )}
       </div>
   );
 }
