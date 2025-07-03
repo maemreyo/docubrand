@@ -1,0 +1,32 @@
+PDFCanvas.tsx:961 Rendering PDFCanvas component {isInitialized: true, hasCanvas: true, canvasRef: true, containerRef: true, containerSize: {…}, …}
+PDFCanvas.tsx:961 Rendering PDFCanvas component {isInitialized: true, hasCanvas: true, canvasRef: true, containerRef: true, containerSize: {…}, …}
+PDFCanvas.tsx:961 Rendering PDFCanvas component {isInitialized: true, hasCanvas: true, canvasRef: true, containerRef: true, containerSize: {…}, …}
+PDFCanvas.tsx:899 Block dropped on canvas {blockType: 'text', screenPosition: {…}, canvasPosition: {…}, constrainedPosition: {…}, canvasBounds: {…}}
+PDFEditor.tsx:73 === BLOCK DROP DEBUG ===
+PDFEditor.tsx:74 Block type: text
+PDFEditor.tsx:75 Drop position: {x: 0, y: 245.99483207377955}
+PDFEditor.tsx:76 Config defaults: {fontSize: 16, fontFamily: 'Arial', textColor: '#000000', backgroundColor: 'transparent'}
+PDFEditor.tsx:124 Created text block with properties: {id: 'text-1751585154458', type: 'text', position: {…}, size: {…}, rotation: 0, …}
+PDFEditor.tsx:207 Adding new block to store: {id: 'text-1751585154458', type: 'text', position: {…}, size: {…}, rotation: 0, …}
+editor-store.ts:315 Store: addBlock called with: {id: 'text-1751585154458', type: 'text', position: {…}, size: {…}, rotation: 0, …}
+editor-store.ts:318 Store: Current state before adding block: {currentBlocksCount: 0, currentBlockIds: Array(0), activeLayer: 'default-layer', layersCount: 1}
+editor-store.ts:340 Store: New state after adding block: {newBlocksCount: 1, newBlockIds: Array(1), addedBlock: {…}}
+PDFEditor.tsx:212 Block added successfully
+PDFEditor.tsx:213 ========================
+PDFCanvas.tsx:961 Rendering PDFCanvas component {isInitialized: true, hasCanvas: true, canvasRef: true, containerRef: true, containerSize: {…}, …}
+PDFCanvas.tsx:362 Render blocks effect triggered {hasCanvas: true, isInitialized: true, blocksCount: 1, showGrid: false, canvasDimensions: {…}}
+PDFCanvas.tsx:381 Clearing existing canvas objects
+PDFCanvas.tsx:392 Rendering 1 blocks on canvas
+PDFCanvas.tsx:394 Creating fabric object for block 0 {blockType: 'text', blockId: 'text-1751585154458', originalPosition: {…}, canvasBounds: {…}}
+PDFCanvas.tsx:430 Creating fabric object from block {blockType: 'text', blockId: 'text-1751585154458', hasFabric: true, originalPosition: {…}, canvasBounds: {…}, …}
+PDFCanvas.tsx:477 Position and size constraints applied {original: {…}, constrained: {…}, wasConstrained: {…}}
+PDFCanvas.tsx:509 Creating text object with DEBUG info {textContent: 'Sample Text', textColor: '#000000', fontSize: 16, fontFamily: 'Arial', fontWeight: 'normal', …}
+PDFCanvas.tsx:565 Text object created successfully with properties {id: 'text-1751585154458', finalPosition: {…}, finalSize: {…}, textContent: 'Sample Text', fontSize: 16, …}
+editor-store.ts:218 Canvas event: object:added
+PDFCanvas.tsx:407 Added block 0 to canvas
+PDFCanvas.tsx:415 Rendering all canvas objects
+PDFCanvas.tsx:417 Canvas rendering complete
+PDFCanvas.tsx:662 Render blocks effect triggered {hasCanvas: true, isInitialized: true, blocksCount: 1, showGrid: false, canvasDimensions: {…}, …}
+PDFCanvas.tsx:694 Objects change check {currentObjectIds: Array(1), newBlockIds: Array(1), objectsChanged: false, shouldUpdate: true}
+PDFCanvas.tsx:762 No changes detected, skipping re-render
+PDFCanvas.tsx:961 Rendering PDFCanvas component {isInitialized: true, hasCanvas: true, canvasRef: true, containerRef: true, containerSize: {…}, …}blocksCount: 1canvasLogicalSize: {width: 595, height: 842}canvasRef: truecontainerRef: truecontainerSize: {width: 1641, height: 1342}hasCanvas: trueisInitialized: true[[Prototype]]: Object

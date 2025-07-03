@@ -1,14 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { DndProvider } from 'react-dnd';
-import { HTML5Backend } from 'react-dnd-html5-backend';
-import { useEditorStore } from '../../stores/editor-store';
-import { PDFCanvas } from '../canvas/PDFCanvas';
-import { BlockLibrary } from '../blocks/BlockLibrary';
-import { EditorToolbar } from './EditorToolbar';
-import { LayerPanel } from '../panels/LayerPanel';
-import { PropertyPanel } from '../panels/PropertyPanel';
-import { TemplatePanel } from '../panels/TemplatePanel';
-import type { Block, BlockType, Position } from '../../types';
+import React, { useEffect, useRef, useState } from "react";
+import { DndProvider } from "react-dnd";
+import { HTML5Backend } from "react-dnd-html5-backend";
+import { useEditorStore } from "../../stores/editor-store";
+import { PDFCanvas } from "../canvas/PDFCanvas";
+import { BlockLibrary } from "../blocks/BlockLibrary";
+import { EditorToolbar } from "./EditorToolbar";
+import { LayerPanel } from "../panels/LayerPanel";
+import { PropertyPanel } from "../panels/PropertyPanel";
+import { TemplatePanel } from "../panels/TemplatePanel";
+import type { Block, BlockType, Position } from "../../types";
 
 interface PDFEditorProps {
   className?: string;
@@ -25,7 +25,7 @@ interface PDFEditorProps {
 }
 
 export const PDFEditor: React.FC<PDFEditorProps> = ({
-  className = '',
+  className = "",
   width = 1200,
   height = 800,
   showPanels = {
@@ -39,7 +39,7 @@ export const PDFEditor: React.FC<PDFEditorProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isInitialized, setIsInitialized] = useState(false);
-  
+
   // Store selectors
   const {
     canvas,
@@ -56,7 +56,10 @@ export const PDFEditor: React.FC<PDFEditorProps> = ({
   } = useEditorStore();
 
   // Canvas dimensions
-  const canvasWidth = width - (showPanels.blocks ? 300 : 0) - (showPanels.layers || showPanels.properties ? 300 : 0);
+  const canvasWidth =
+    width -
+    (showPanels.blocks ? 300 : 0) -
+    (showPanels.layers || showPanels.properties ? 300 : 0);
   const canvasHeight = height - 60; // Subtract toolbar height
 
   // Initialize editor
@@ -65,15 +68,23 @@ export const PDFEditor: React.FC<PDFEditorProps> = ({
     setLoading(false);
   }, [setLoading]);
 
-  // Handle block drop from library
+  // Handle block drop from library - IMPROVED VERSION
   const handleBlockDrop = (blockType: BlockType, position: Position) => {
+    console.log("=== BLOCK DROP DEBUG ===");
+    console.log("Block type:", blockType);
+    console.log("Drop position:", position);
+    console.log("Config defaults:", config.defaults);
+
     const blockId = `${blockType}-${Date.now()}`;
-    
-    // Create block based on type
+
+    // Create block based on type with STRONG DEFAULTS
     const baseBlock = {
       id: blockId,
       type: blockType,
-      position,
+      position: {
+        x: Math.max(10, Math.min(position.x, config.canvas.width - 200)),
+        y: Math.max(10, Math.min(position.y, config.canvas.height - 100)),
+      },
       size: { width: 200, height: 100 },
       rotation: 0,
       locked: false,
@@ -84,39 +95,42 @@ export const PDFEditor: React.FC<PDFEditorProps> = ({
       metadata: {
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        version: '1.0.0',
+        version: "1.0.0",
       },
     };
 
     let newBlock: Block;
 
     switch (blockType) {
-      case 'text':
+      case "text":
         newBlock = {
           ...baseBlock,
-          type: 'text',
-          content: 'Sample Text',
-          fontFamily: config.defaults.fontFamily,
-          fontSize: config.defaults.fontSize,
-          fontWeight: 'normal',
-          fontStyle: 'normal',
-          textAlign: 'left',
-          color: config.defaults.textColor,
+          type: "text",
+          // STRONG DEFAULTS - ensure visibility
+          content: "Sample Text",
+          fontFamily: config.defaults?.fontFamily || "Arial",
+          fontSize: Math.max(config.defaults?.fontSize || 16, 16), // Minimum 16pt
+          fontWeight: "normal",
+          fontStyle: "normal",
+          textAlign: "left",
+          color: config.defaults?.textColor || "#000000", // Ensure black text
           lineHeight: 1.2,
           letterSpacing: 0,
-          textDecoration: 'none',
-          direction: 'ltr',
-          language: 'en',
+          textDecoration: "none",
+          direction: "ltr",
+          language: "en",
         } as Block;
+
+        console.log("Created text block with properties:", newBlock);
         break;
 
-      case 'image':
+      case "image":
         newBlock = {
           ...baseBlock,
-          type: 'image',
-          src: '/placeholder-image.png',
-          alt: 'Placeholder Image',
-          fit: 'contain',
+          type: "image",
+          src: "/placeholder-image.png",
+          alt: "Placeholder Image",
+          fit: "contain",
           filters: {
             brightness: 100,
             contrast: 100,
@@ -134,54 +148,69 @@ export const PDFEditor: React.FC<PDFEditorProps> = ({
         } as Block;
         break;
 
-      case 'table':
+      case "table":
         newBlock = {
           ...baseBlock,
-          type: 'table',
-          size: { width: 400, height: 200 },
+          type: "table",
           rows: 3,
           columns: 3,
-          data: Array(3).fill(null).map(() => 
-            Array(3).fill(null).map(() => ({
-              content: 'Cell',
-              type: 'text' as const,
-              colSpan: 1,
-              rowSpan: 1,
-            }))
-          ),
+          data: [
+            [
+              { content: "Header 1", type: "text" },
+              { content: "Header 2", type: "text" },
+              { content: "Header 3", type: "text" },
+            ],
+            [
+              { content: "Cell 1", type: "text" },
+              { content: "Cell 2", type: "text" },
+              { content: "Cell 3", type: "text" },
+            ],
+            [
+              { content: "Cell 4", type: "text" },
+              { content: "Cell 5", type: "text" },
+              { content: "Cell 6", type: "text" },
+            ],
+          ],
           headerStyle: {
-            backgroundColor: '#f0f0f0',
-            textColor: '#000000',
-            fontSize: 12,
-            fontWeight: 'bold',
-            textAlign: 'left',
-            verticalAlign: 'middle',
+            backgroundColor: "#f3f4f6",
+            textColor: "#1f2937",
+            fontSize: 14,
+            fontWeight: "bold",
+            textAlign: "center",
+            verticalAlign: "middle",
             padding: { top: 8, right: 8, bottom: 8, left: 8 },
           },
           cellStyle: {
-            backgroundColor: '#ffffff',
-            textColor: '#000000',
-            fontSize: 11,
-            fontWeight: 'normal',
-            textAlign: 'left',
-            verticalAlign: 'middle',
-            padding: { top: 6, right: 6, bottom: 6, left: 6 },
+            backgroundColor: "#ffffff",
+            textColor: "#374151",
+            fontSize: 12,
+            fontWeight: "normal",
+            textAlign: "left",
+            verticalAlign: "top",
+            padding: { top: 6, right: 8, bottom: 6, left: 8 },
           },
           borderStyle: {
             width: 1,
-            color: '#cccccc',
-            style: 'solid',
+            color: "#d1d5db",
+            style: "solid",
           },
           alternateRowColors: false,
-          alternateRowColor: '#f9f9f9',
+          alternateRowColor: "#f9fafb",
         } as Block;
         break;
 
       default:
-        newBlock = baseBlock as Block;
+        console.warn(`Unsupported block type: ${blockType}`);
+        return;
     }
 
+    console.log("Adding new block to store:", newBlock);
+
+    // Add block to store
     addBlock(newBlock);
+
+    console.log("Block added successfully");
+    console.log("========================");
   };
 
   // Handle save
@@ -203,11 +232,11 @@ export const PDFEditor: React.FC<PDFEditorProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey) {
         switch (e.key) {
-          case 's':
+          case "s":
             e.preventDefault();
             handleSave();
             break;
-          case 'z':
+          case "z":
             e.preventDefault();
             if (e.shiftKey) {
               useEditorStore.getState().redo();
@@ -215,17 +244,17 @@ export const PDFEditor: React.FC<PDFEditorProps> = ({
               useEditorStore.getState().undo();
             }
             break;
-          case 'c':
+          case "c":
             if (selectedObjects.length > 0) {
               e.preventDefault();
               useEditorStore.getState().copySelection();
             }
             break;
-          case 'v':
+          case "v":
             e.preventDefault();
             useEditorStore.getState().paste();
             break;
-          case 'x':
+          case "x":
             if (selectedObjects.length > 0) {
               e.preventDefault();
               useEditorStore.getState().cut();
@@ -233,17 +262,17 @@ export const PDFEditor: React.FC<PDFEditorProps> = ({
             break;
         }
       }
-      
+
       // Delete key
-      if (e.key === 'Delete' && selectedObjects.length > 0) {
-        selectedObjects.forEach(id => {
+      if (e.key === "Delete" && selectedObjects.length > 0) {
+        selectedObjects.forEach((id) => {
           useEditorStore.getState().removeBlock(id);
         });
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedObjects, currentTemplate, onSave]);
 
   if (!isInitialized) {
@@ -256,7 +285,7 @@ export const PDFEditor: React.FC<PDFEditorProps> = ({
 
   return (
     <DndProvider backend={HTML5Backend}>
-      <div 
+      <div
         ref={containerRef}
         className={`pdf-builder-editor flex flex-col h-full bg-gray-100 ${className}`}
         style={{ width, height }}
@@ -275,7 +304,9 @@ export const PDFEditor: React.FC<PDFEditorProps> = ({
           {showPanels.blocks && (
             <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
               <div className="p-4 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900">Block Library</h3>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Block Library
+                </h3>
               </div>
               <div className="flex-1 overflow-y-auto">
                 <BlockLibrary onBlockDrop={handleBlockDrop} />
@@ -300,24 +331,36 @@ export const PDFEditor: React.FC<PDFEditorProps> = ({
             {/* Status Bar */}
             <div className="h-8 bg-gray-200 border-t border-gray-300 flex items-center justify-between px-4 text-sm text-gray-600">
               <div className="flex items-center space-x-4">
-                <span>Canvas: {config.canvas.width} × {config.canvas.height} pt</span>
+                <span>
+                  Canvas: {config.canvas.width} × {config.canvas.height} pt
+                </span>
                 <span>Objects: {selectedObjects.length} selected</span>
               </div>
               <div className="flex items-center space-x-4">
-                <span>Zoom: {Math.round(useEditorStore.getState().canvasState.zoom * 100)}%</span>
-                {isDirty && <span className="text-orange-600">• Unsaved changes</span>}
+                <span>
+                  Zoom:{" "}
+                  {Math.round(useEditorStore.getState().canvasState.zoom * 100)}
+                  %
+                </span>
+                {isDirty && (
+                  <span className="text-orange-600">• Unsaved changes</span>
+                )}
               </div>
             </div>
           </div>
 
           {/* Right Sidebar */}
-          {(showPanels.layers || showPanels.properties || showPanels.templates) && (
+          {(showPanels.layers ||
+            showPanels.properties ||
+            showPanels.templates) && (
             <div className="w-80 bg-white border-l border-gray-200 flex flex-col">
               {/* Template Panel */}
               {showPanels.templates && (
                 <div className="border-b border-gray-200">
                   <div className="p-4 border-b border-gray-100">
-                    <h3 className="text-lg font-semibold text-gray-900">Templates</h3>
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Templates
+                    </h3>
                   </div>
                   <div className="h-48 overflow-y-auto">
                     <TemplatePanel />
@@ -329,7 +372,9 @@ export const PDFEditor: React.FC<PDFEditorProps> = ({
               {showPanels.layers && (
                 <div className="border-b border-gray-200">
                   <div className="p-4 border-b border-gray-100">
-                    <h3 className="text-lg font-semibold text-gray-900">Layers</h3>
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Layers
+                    </h3>
                   </div>
                   <div className="h-48 overflow-y-auto">
                     <LayerPanel />
@@ -341,7 +386,9 @@ export const PDFEditor: React.FC<PDFEditorProps> = ({
               {showPanels.properties && (
                 <div className="flex-1">
                   <div className="p-4 border-b border-gray-100">
-                    <h3 className="text-lg font-semibold text-gray-900">Properties</h3>
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Properties
+                    </h3>
                   </div>
                   <div className="flex-1 overflow-y-auto">
                     <PropertyPanel />

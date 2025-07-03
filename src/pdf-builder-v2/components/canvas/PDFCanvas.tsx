@@ -1,10 +1,13 @@
-"use client"
+// src/pdf-builder-v2/components/canvas/PDFCanvas.tsx
+// UPDATED: 2025-07-04 - Fixed canvas initialization and position bounds
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useDrop } from 'react-dnd';
-import { useEditorStore } from '../../stores/editor-store';
-import { CanvasControls } from './CanvasControls';
-import type { BlockType, Position, FabricObjectWithId } from '../../types';
+"use client";
+
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useDrop } from "react-dnd";
+import { useEditorStore } from "../../stores/editor-store";
+import { CanvasControls } from "./CanvasControls";
+import type { BlockType, Position, FabricObjectWithId } from "../../types";
 
 // Dynamically import fabric to avoid SSR issues
 let fabric: any = null;
@@ -29,22 +32,22 @@ export const PDFCanvas: React.FC<PDFCanvasProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isInitialized, setIsInitialized] = useState(false);
-  
+
   // Component lifecycle logging
   useEffect(() => {
-    console.log('PDFCanvas component mounted', { 
-      width, 
-      height, 
-      showGrid, 
-      showRulers, 
-      showGuides 
+    console.log("PDFCanvas component mounted", {
+      width,
+      height,
+      showGrid,
+      showRulers,
+      showGuides,
     });
-    
+
     return () => {
-      console.log('PDFCanvas component unmounted');
+      console.log("PDFCanvas component unmounted");
     };
   }, []);
-  
+
   // Store selectors
   const {
     canvas,
@@ -60,83 +63,104 @@ export const PDFCanvas: React.FC<PDFCanvasProps> = ({
 
   // Initialize Fabric.js canvas
   useEffect(() => {
-    console.log('Canvas initialization effect triggered', { 
-      hasCanvasRef: !!canvasRef.current, 
+    console.log("Canvas initialization effect triggered", {
+      hasCanvasRef: !!canvasRef.current,
       hasExistingCanvas: !!canvas,
-      width,
-      height,
-      configBg: config.canvas.backgroundColor
+      containerDimensions: { width, height },
+      canvasConfig: {
+        width: config.canvas.width,
+        height: config.canvas.height,
+      },
     });
-    
+
     // Use a small timeout to ensure the canvas element is properly rendered in the DOM
     const initTimeout = setTimeout(() => {
-      console.log('Checking canvas ref after timeout', { hasCanvasRef: !!canvasRef.current });
-      
+      console.log("Checking canvas ref after timeout", {
+        hasCanvasRef: !!canvasRef.current,
+      });
+
       if (!canvasRef.current) {
-        console.log('Canvas ref is still not available after timeout, skipping initialization');
+        console.log(
+          "Canvas ref is still not available after timeout, skipping initialization"
+        );
         return;
       }
-      
+
       if (canvas) {
-        console.log('Canvas already exists in store, skipping initialization');
+        console.log("Canvas already exists in store, skipping initialization");
         return;
       }
 
       const initializeFabric = async () => {
-        console.log('Starting fabric initialization');
+        console.log("Starting fabric initialization");
         try {
           if (!fabric) {
-            console.log('Fabric not loaded, importing dynamically');
+            console.log("Fabric not loaded, importing dynamically");
             try {
               // Dynamically import fabric only on client side
-              const fabricModule = await import('fabric');
+              const fabricModule = await import("fabric");
               fabric = fabricModule.fabric;
-              console.log('Fabric imported successfully', { 
+              console.log("Fabric imported successfully", {
                 fabricLoaded: !!fabric,
-                fabricVersion: fabric?.version || 'unknown',
-                fabricObject: Object.keys(fabric || {}).length > 0 ? 'has properties' : 'empty object'
+                fabricVersion: fabric?.version || "unknown",
+                fabricObject:
+                  Object.keys(fabric || {}).length > 0
+                    ? "has properties"
+                    : "empty object",
               });
-              
+
               if (!fabric || !fabric.Canvas) {
-                console.error('Fabric loaded but Canvas class is not available', fabric);
-                throw new Error('Fabric Canvas class not available');
+                console.error(
+                  "Fabric loaded but Canvas class is not available",
+                  fabric
+                );
+                throw new Error("Fabric Canvas class not available");
               }
             } catch (importError) {
-              console.error('Error importing fabric.js:', importError);
+              console.error("Error importing fabric.js:", importError);
               throw importError;
             }
           }
 
-          console.log('Creating fabric canvas instance', { 
+          console.log("Creating fabric canvas instance", {
             canvasRefExists: !!canvasRef.current,
             canvasElement: canvasRef.current,
-            dimensions: { width, height }
+            // Use CONFIG dimensions for fabric canvas logical size
+            logicalDimensions: {
+              width: config.canvas.width,
+              height: config.canvas.height,
+            },
+            // Container dimensions for display
+            containerDimensions: { width, height },
           });
-          
+
           // Make sure we still have the canvas reference
           if (!canvasRef.current) {
-            console.error('Canvas reference lost during initialization');
+            console.error("Canvas reference lost during initialization");
             return null;
           }
-          
+
           // Check if the canvas element has proper dimensions
           const canvasElement = canvasRef.current;
-          console.log('Canvas element dimensions before initialization', {
+          console.log("Canvas element dimensions before initialization", {
             offsetWidth: canvasElement.offsetWidth,
             offsetHeight: canvasElement.offsetHeight,
             clientWidth: canvasElement.clientWidth,
             clientHeight: canvasElement.clientHeight,
             width: canvasElement.width,
-            height: canvasElement.height
+            height: canvasElement.height,
           });
-          
+
           let fabricCanvas;
-          
+
           try {
-            console.log('Attempting to create interactive Canvas');
+            console.log(
+              "Attempting to create interactive Canvas with CONFIG dimensions"
+            );
             fabricCanvas = new fabric.Canvas(canvasRef.current, {
-              width: width,
-              height: height,
+              // Use CONFIG dimensions for logical canvas size (A4: 595x842)
+              width: config.canvas.width,
+              height: config.canvas.height,
               backgroundColor: config.canvas.backgroundColor,
               selection: true,
               preserveObjectStacking: true,
@@ -147,55 +171,102 @@ export const PDFCanvas: React.FC<PDFCanvasProps> = ({
               skipTargetFind: false,
               perPixelTargetFind: true,
               targetFindTolerance: 4,
+              // Add performance optimizations
+              allowTouchScrolling: false,
+              imageSmoothingEnabled: false,
+            });
+
+            console.log("Canvas created with logical dimensions", {
+              fabricWidth: fabricCanvas.width,
+              fabricHeight: fabricCanvas.height,
+              configWidth: config.canvas.width,
+              configHeight: config.canvas.height,
             });
           } catch (canvasError) {
-            console.error('Error creating interactive Canvas, trying StaticCanvas as fallback:', canvasError);
-            
+            console.error(
+              "Error creating interactive Canvas, trying StaticCanvas as fallback:",
+              canvasError
+            );
+
             try {
               // Try with StaticCanvas as fallback
               fabricCanvas = new fabric.StaticCanvas(canvasRef.current, {
-                width: width,
-                height: height,
+                width: config.canvas.width,
+                height: config.canvas.height,
                 backgroundColor: config.canvas.backgroundColor,
                 renderOnAddRemove: true,
               });
-              console.log('Created StaticCanvas as fallback');
+              console.log("Created StaticCanvas as fallback");
             } catch (staticCanvasError) {
-              console.error('Error creating StaticCanvas fallback:', staticCanvasError);
-              throw new Error('Failed to create both Canvas and StaticCanvas');
+              console.error(
+                "Error creating StaticCanvas fallback:",
+                staticCanvasError
+              );
+              throw new Error("Failed to create both Canvas and StaticCanvas");
             }
           }
-          
-          console.log('Fabric canvas created successfully', { 
+
+          console.log("Fabric canvas created successfully", {
             canvasCreated: !!fabricCanvas,
-            canvasDimensions: { width: fabricCanvas.width, height: fabricCanvas.height }
+            canvasDimensions: {
+              width: fabricCanvas.width,
+              height: fabricCanvas.height,
+            },
           });
 
           // Configure default controls
           fabric.Object.prototype.set({
-            borderColor: '#4285f4',
+            borderColor: "#4285f4",
             borderOpacityWhenMoving: 0.5,
             borderScaleFactor: 2,
-            cornerColor: '#4285f4',
-            cornerStyle: 'circle',
+            cornerColor: "#4285f4",
+            cornerStyle: "circle",
             cornerSize: 8,
             transparentCorners: false,
             rotatingPointOffset: 40,
           });
 
-          // Set initial zoom and center
-          fabricCanvas.setZoom(1);
-          fabricCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+          // Set initial zoom to fit canvas in container
+          const zoomToFit =
+            Math.min(
+              width / config.canvas.width,
+              height / config.canvas.height
+            ) * 0.9; // 90% to add padding
+
+          console.log("Setting initial zoom to fit", {
+            zoomToFit,
+            containerSize: { width, height },
+            canvasSize: {
+              width: config.canvas.width,
+              height: config.canvas.height,
+            },
+          });
+
+          fabricCanvas.setZoom(zoomToFit);
+
+          // Center the canvas
+          const centerX = (width - config.canvas.width * zoomToFit) / 2;
+          const centerY = (height - config.canvas.height * zoomToFit) / 2;
+          fabricCanvas.setViewportTransform([
+            zoomToFit,
+            0,
+            0,
+            zoomToFit,
+            centerX,
+            centerY,
+          ]);
 
           // Setup canvas in store
-          console.log('Setting canvas in store and updating initialization state');
+          console.log(
+            "Setting canvas in store and updating initialization state"
+          );
           setCanvas(fabricCanvas);
           setIsInitialized(true);
-          console.log('Canvas initialization complete');
+          console.log("Canvas initialization complete");
 
           return fabricCanvas;
         } catch (error) {
-          console.error('Error initializing fabric canvas:', error);
+          console.error("Error initializing fabric canvas:", error);
           return null;
         }
       };
@@ -205,257 +276,375 @@ export const PDFCanvas: React.FC<PDFCanvasProps> = ({
       initializeFabric()
         .then((canvas) => {
           fabricCanvasInstance = canvas;
-          console.log('Canvas instance saved to local variable', { hasInstance: !!fabricCanvasInstance });
+          console.log("Canvas instance saved to local variable", {
+            hasInstance: !!fabricCanvasInstance,
+          });
         })
-        .catch(error => {
-          console.error('Unhandled error in fabric initialization:', error);
+        .catch((error) => {
+          console.error("Unhandled error in fabric initialization:", error);
         });
     }, 100); // Small delay to ensure DOM is ready
 
     // Cleanup
     return () => {
-      console.log('Cleanup function called, clearing timeout and disposing canvas');
+      console.log(
+        "Cleanup function called, clearing timeout and disposing canvas"
+      );
       clearTimeout(initTimeout);
-      
+
       if (canvas) {
-        console.log('Disposing existing canvas');
+        console.log("Disposing existing canvas");
         canvas.dispose();
       }
       setCanvas(null);
       setIsInitialized(false);
     };
-  }, [width, height, config.canvas.backgroundColor, setCanvas, canvas]);
+  }, [
+    width,
+    height,
+    config.canvas.backgroundColor,
+    config.canvas.width,
+    config.canvas.height,
+  ]);
 
   // Update canvas size when container resizes
   useEffect(() => {
-    console.log('Canvas resize effect triggered', { 
-      hasCanvas: !!canvas, 
-      isInitialized, 
-      newDimensions: { width, height } 
+    console.log("Canvas resize effect triggered", {
+      hasCanvas: !!canvas,
+      isInitialized,
+      newContainerDimensions: { width, height },
+      canvasLogicalSize: {
+        width: config.canvas.width,
+        height: config.canvas.height,
+      },
     });
-    
+
     if (canvas && isInitialized) {
-      console.log('Resizing canvas');
-      canvas.setWidth(width);
-      canvas.setHeight(height);
+      console.log("Updating canvas zoom to fit new container size");
+
+      // Recalculate zoom to fit
+      const zoomToFit =
+        Math.min(width / config.canvas.width, height / config.canvas.height) *
+        0.9; // 90% to add padding
+
+      // Update zoom and center position
+      canvas.setZoom(zoomToFit);
+      const centerX = (width - config.canvas.width * zoomToFit) / 2;
+      const centerY = (height - config.canvas.height * zoomToFit) / 2;
+      canvas.setViewportTransform([
+        zoomToFit,
+        0,
+        0,
+        zoomToFit,
+        centerX,
+        centerY,
+      ]);
+
       canvas.renderAll();
-      console.log('Canvas resized successfully');
+      console.log("Canvas zoom updated successfully", { zoomToFit });
     } else {
-      console.log('Skipping canvas resize - canvas not ready', { 
-        hasCanvas: !!canvas, 
-        isInitialized 
+      console.log("Skipping canvas resize - canvas not ready", {
+        hasCanvas: !!canvas,
+        isInitialized,
       });
     }
-  }, [canvas, width, height, isInitialized]);
+  }, [
+    canvas,
+    width,
+    height,
+    isInitialized,
+    config.canvas.width,
+    config.canvas.height,
+  ]);
 
   // Render blocks on canvas
   useEffect(() => {
-    console.log('Render blocks effect triggered', { 
-      hasCanvas: !!canvas, 
-      isInitialized, 
+    console.log("Render blocks effect triggered", {
+      hasCanvas: !!canvas,
+      isInitialized,
       blocksCount: blocks.length,
       showGrid,
-      canvasDimensions: { 
-        width: config.canvas.width, 
-        height: config.canvas.height 
-      }
+      canvasDimensions: {
+        width: config.canvas.width,
+        height: config.canvas.height,
+      },
     });
-    
+
     if (!canvas || !isInitialized) {
-      console.log('Skipping block rendering - canvas not ready', { 
-        hasCanvas: !!canvas, 
-        isInitialized 
+      console.log("Skipping block rendering - canvas not ready", {
+        hasCanvas: !!canvas,
+        isInitialized,
       });
       return;
     }
 
-    console.log('Clearing existing canvas objects');
+    console.log("Clearing existing canvas objects");
     // Clear existing objects
     canvas.clear();
-    
+
     // Add grid if enabled
     if (showGrid) {
-      console.log('Adding grid to canvas');
+      console.log("Adding grid to canvas");
       addGridToCanvas(canvas, config.canvas.width, config.canvas.height);
     }
 
     // Render blocks
     console.log(`Rendering ${blocks.length} blocks on canvas`);
     blocks.forEach((block, index) => {
-      console.log(`Creating fabric object for block ${index}`, { blockType: block.type, blockId: block.id });
+      console.log(`Creating fabric object for block ${index}`, {
+        blockType: block.type,
+        blockId: block.id,
+        originalPosition: block.position,
+        canvasBounds: {
+          width: config.canvas.width,
+          height: config.canvas.height,
+        },
+      });
+
       const fabricObject = createFabricObjectFromBlock(block);
       if (fabricObject) {
         canvas.add(fabricObject);
         console.log(`Added block ${index} to canvas`);
       } else {
-        console.warn(`Failed to create fabric object for block ${index}`, { blockType: block.type });
+        console.warn(`Failed to create fabric object for block ${index}`, {
+          blockType: block.type,
+        });
       }
     });
 
-    console.log('Rendering all canvas objects');
+    console.log("Rendering all canvas objects");
     canvas.renderAll();
-    console.log('Canvas rendering complete');
-  }, [canvas, blocks, showGrid, config.canvas.width, config.canvas.height, isInitialized]);
+    console.log("Canvas rendering complete");
+  }, [
+    canvas,
+    blocks,
+    showGrid,
+    config.canvas.width,
+    config.canvas.height,
+    isInitialized,
+  ]);
 
-  // Create fabric object from block
-  const createFabricObjectFromBlock = (block: any): FabricObjectWithId | null => {
-    console.log('Creating fabric object from block', { 
-      blockType: block.type, 
+  const createFabricObjectFromBlock = (
+    block: any
+  ): FabricObjectWithId | null => {
+    console.log("Creating fabric object from block", {
+      blockType: block.type,
       blockId: block.id,
-      hasFabric: !!fabric 
+      hasFabric: !!fabric,
+      originalPosition: block.position,
+      canvasBounds: {
+        width: config.canvas.width,
+        height: config.canvas.height,
+      },
+      blockData: block, // DEBUG: Log full block data
     });
-    
+
     if (!fabric) {
-      console.warn('Fabric not available, cannot create object');
+      console.warn("Fabric not available, cannot create object");
       return null;
     }
-    
+
+    // CONSTRAINT POSITIONS TO CANVAS BOUNDS
+    const constrainedPosition = {
+      x: Math.max(
+        0,
+        Math.min(
+          block.position?.x || 50,
+          config.canvas.width - (block.size?.width || 100)
+        )
+      ),
+      y: Math.max(
+        0,
+        Math.min(
+          block.position?.y || 50,
+          config.canvas.height - (block.size?.height || 50)
+        )
+      ),
+    };
+
+    // CONSTRAINT SIZE TO CANVAS BOUNDS
+    const constrainedSize = {
+      width: Math.min(
+        block.size?.width || 200,
+        config.canvas.width - constrainedPosition.x
+      ),
+      height: Math.min(
+        block.size?.height || 100,
+        config.canvas.height - constrainedPosition.y
+      ),
+    };
+
+    console.log("Position and size constraints applied", {
+      original: {
+        position: block.position,
+        size: block.size,
+      },
+      constrained: {
+        position: constrainedPosition,
+        size: constrainedSize,
+      },
+      wasConstrained: {
+        position:
+          (block.position?.x || 0) !== constrainedPosition.x ||
+          (block.position?.y || 0) !== constrainedPosition.y,
+        size:
+          (block.size?.width || 0) !== constrainedSize.width ||
+          (block.size?.height || 0) !== constrainedSize.height,
+      },
+    });
+
     switch (block.type) {
-      case 'text':
-        console.log('Creating text object', { 
-          content: block.content,
-          position: block.position,
-          size: block.size
-        });
-        
-        try {
-          const textObject = new fabric.Textbox(block.content, {
-            left: block.position.x,
-            top: block.position.y,
-            width: block.size.width,
-            height: block.size.height,
-            fontFamily: block.fontFamily,
+      case "text":
+        // PROVIDE STRONG DEFAULTS FOR ALL TEXT PROPERTIES
+        const textContent = block.content || "Sample Text";
+        const textColor = block.color || "#000000";
+        const fontSize = block.fontSize || 16;
+        const fontFamily = block.fontFamily || "Arial";
+        const fontWeight = block.fontWeight || "normal";
+        const fontStyle = block.fontStyle || "normal";
+        const textAlign = block.textAlign || "left";
+        const opacity = block.opacity !== undefined ? block.opacity : 1;
+        const visible = block.visible !== false; // Default to true
+
+        console.log("Creating text object with DEBUG info", {
+          textContent,
+          textColor,
+          fontSize,
+          fontFamily,
+          fontWeight,
+          constrainedPosition,
+          constrainedSize,
+          opacity,
+          visible,
+          originalBlock: {
+            content: block.content,
+            color: block.color,
             fontSize: block.fontSize,
-            fontWeight: block.fontWeight,
-            fontStyle: block.fontStyle,
-            textAlign: block.textAlign,
-            fill: block.color,
-            angle: block.rotation,
-            opacity: block.opacity,
+            fontFamily: block.fontFamily,
+          },
+        });
+
+        try {
+          const textObject = new fabric.Textbox(textContent, {
+            left: constrainedPosition.x,
+            top: constrainedPosition.y,
+            width: constrainedSize.width,
+            height: constrainedSize.height,
+            fontFamily: fontFamily,
+            fontSize: fontSize,
+            fontWeight: fontWeight,
+            fontStyle: fontStyle,
+            textAlign: textAlign,
+            fill: textColor,
+            angle: block.rotation || 0,
+            opacity: opacity,
             selectable: !block.locked,
-            visible: block.visible,
+            visible: visible,
+            // Add bounds checking
+            lockMovementX: false,
+            lockMovementY: false,
+            hasControls: true,
+            hasBorders: true,
+            // IMPORTANT: Make sure text is visible
+            backgroundColor: "transparent",
+            borderColor: "#4285f4",
+            borderScaleFactor: 2,
+            cornerSize: 10,
+            transparentCorners: false,
+            // Prevent text from being too small to see
+            minScaleLimit: 0.1,
+            // Add padding to make text more visible
+            padding: 5,
           }) as unknown as FabricObjectWithId;
-          
+
           textObject.id = block.id;
           textObject.blockType = block.type;
           textObject.blockData = block;
-          
-          console.log('Text object created successfully');
+
+          // DEBUG: Log final text object properties
+          console.log("Text object created successfully with properties", {
+            id: textObject.id,
+            finalPosition: { left: textObject.left, top: textObject.top },
+            finalSize: { width: textObject.width, height: textObject.height },
+            textContent: textObject.text,
+            fontSize: textObject.fontSize,
+            fontFamily: textObject.fontFamily,
+            fill: textObject.fill,
+            visible: textObject.visible,
+            opacity: textObject.opacity,
+            selectable: textObject.selectable,
+          });
+
+          // FORCE RENDER: Ensure text is rendered immediately
+          textObject.setCoords();
+
           return textObject;
         } catch (error) {
-          console.error('Error creating text object:', error);
+          console.error("Error creating text object:", error);
+          console.error("Block data that caused error:", block);
           return null;
         }
 
-      case 'image':
-        console.log('Creating image placeholder object', { 
-          position: block.position,
-          size: block.size
+      case "image":
+        console.log("Creating image placeholder object", {
+          constrainedPosition,
+          constrainedSize,
         });
-        
+
         try {
           // For now, create a placeholder rectangle for images
           const imageObject = new fabric.Rect({
-            left: block.position.x,
-            top: block.position.y,
-            width: block.size.width,
-            height: block.size.height,
-            fill: '#f0f0f0',
-            stroke: '#cccccc',
+            left: constrainedPosition.x,
+            top: constrainedPosition.y,
+            width: constrainedSize.width,
+            height: constrainedSize.height,
+            fill: "#f0f0f0",
+            stroke: "#cccccc",
             strokeWidth: 2,
-            angle: block.rotation,
-            opacity: block.opacity,
+            angle: block.rotation || 0,
+            opacity: block.opacity || 1,
             selectable: !block.locked,
-            visible: block.visible,
+            visible: block.visible !== false,
           }) as FabricObjectWithId;
-          
-          // Add image placeholder text
-          const imageText = new fabric.Text('IMAGE', {
-            left: block.position.x + block.size.width / 2,
-            top: block.position.y + block.size.height / 2,
-            fontSize: 14,
-            fill: '#999999',
-            textAlign: 'center',
-            originX: 'center',
-            originY: 'center',
-            selectable: false,
-          });
-          
+
           imageObject.id = block.id;
           imageObject.blockType = block.type;
           imageObject.blockData = block;
-          
-          console.log('Image placeholder object created successfully');
-          // For now, just return the rectangle
+
+          console.log("Image placeholder object created successfully");
           return imageObject;
         } catch (error) {
-          console.error('Error creating image placeholder object:', error);
+          console.error("Error creating image placeholder object:", error);
           return null;
         }
 
-      case 'table':
-        console.log('Creating table object', { 
-          position: block.position,
-          size: block.size,
-          rows: block.rows,
-          columns: block.columns
+      case "table":
+        console.log("Creating table object", {
+          constrainedPosition,
+          constrainedSize,
+          rows: block.rows || 3,
+          columns: block.columns || 3,
         });
-        
+
         try {
           // Create a simple table representation
           const tableGroup = new fabric.Group([], {
-            left: block.position.x,
-            top: block.position.y,
-            angle: block.rotation,
-            opacity: block.opacity,
+            left: constrainedPosition.x,
+            top: constrainedPosition.y,
+            angle: block.rotation || 0,
+            opacity: block.opacity || 1,
             selectable: !block.locked,
-            visible: block.visible,
+            visible: block.visible !== false,
           }) as unknown as FabricObjectWithId;
-
-          const cellWidth = block.size.width / block.columns;
-          const cellHeight = block.size.height / block.rows;
-          
-          console.log('Table cell dimensions calculated', { cellWidth, cellHeight });
-
-          // Create table cells
-          for (let row = 0; row < block.rows; row++) {
-            for (let col = 0; col < block.columns; col++) {
-              console.log(`Creating cell at row ${row}, col ${col}`);
-              
-              const cellRect = new fabric.Rect({
-                left: col * cellWidth,
-                top: row * cellHeight,
-                width: cellWidth,
-                height: cellHeight,
-                fill: row === 0 ? block.headerStyle.backgroundColor : block.cellStyle.backgroundColor,
-                stroke: block.borderStyle.color,
-                strokeWidth: block.borderStyle.width,
-              });
-
-              const cellData = block.data[row]?.[col];
-              const cellText = new fabric.Text(cellData?.content || '', {
-                left: col * cellWidth + 5,
-                top: row * cellHeight + 5,
-                fontSize: row === 0 ? block.headerStyle.fontSize : block.cellStyle.fontSize,
-                fontWeight: row === 0 ? block.headerStyle.fontWeight : block.cellStyle.fontWeight,
-                fill: row === 0 ? block.headerStyle.textColor : block.cellStyle.textColor,
-              });
-
-              // Note: These lines are commented out in the original code
-              // tableGroup.addWithUpdate(cellRect);
-              // tableGroup.addWithUpdate(cellText);
-              console.log(`Cell at row ${row}, col ${col} created but not added to group`);
-            }
-          }
 
           tableGroup.id = block.id;
           tableGroup.blockType = block.type;
           tableGroup.blockData = block;
-          
-          console.log('Table object created successfully');
+
+          console.log("Table object created successfully");
           return tableGroup;
         } catch (error) {
-          console.error('Error creating table object:', error);
+          console.error("Error creating table object:", error);
           return null;
         }
 
@@ -465,31 +654,188 @@ export const PDFCanvas: React.FC<PDFCanvasProps> = ({
     }
   };
 
+  // ALSO ADD: Prevent canvas clearing on every state update
+  // Update the render blocks useEffect to be more selective:
+
+  // Render blocks on canvas - IMPROVED VERSION
+  useEffect(() => {
+    console.log("Render blocks effect triggered", {
+      hasCanvas: !!canvas,
+      isInitialized,
+      blocksCount: blocks.length,
+      showGrid,
+      canvasDimensions: {
+        width: config.canvas.width,
+        height: config.canvas.height,
+      },
+      blocksIds: blocks.map((b) => b.id), // DEBUG: Track block IDs
+    });
+
+    if (!canvas || !isInitialized) {
+      console.log("Skipping block rendering - canvas not ready", {
+        hasCanvas: !!canvas,
+        isInitialized,
+      });
+      return;
+    }
+
+    // CHECK IF BLOCKS ACTUALLY CHANGED before clearing everything
+    const currentObjectIds = canvas
+      .getObjects()
+      .map((obj: any) => obj.id)
+      .filter(Boolean);
+    const newBlockIds = blocks.map((b) => b.id);
+
+    const objectsChanged =
+      currentObjectIds.length !== newBlockIds.length ||
+      !currentObjectIds.every((id) => newBlockIds.includes(id)) ||
+      !newBlockIds.every((id) => currentObjectIds.includes(id));
+
+    console.log("Objects change check", {
+      currentObjectIds,
+      newBlockIds,
+      objectsChanged,
+      shouldUpdate: objectsChanged || showGrid !== canvas._hasGrid,
+    });
+
+    // Only clear and re-render if objects actually changed
+    if (objectsChanged) {
+      console.log("Clearing existing canvas objects due to changes");
+      // Clear existing objects
+      canvas.clear();
+
+      // Add grid if enabled
+      if (showGrid) {
+        console.log("Adding grid to canvas");
+        addGridToCanvas(canvas, config.canvas.width, config.canvas.height);
+        canvas._hasGrid = true;
+      } else {
+        canvas._hasGrid = false;
+      }
+
+      // Render blocks
+      console.log(`Rendering ${blocks.length} blocks on canvas`);
+      blocks.forEach((block, index) => {
+        console.log(`Creating fabric object for block ${index}`, {
+          blockType: block.type,
+          blockId: block.id,
+          originalPosition: block.position,
+          canvasBounds: {
+            width: config.canvas.width,
+            height: config.canvas.height,
+          },
+        });
+
+        const fabricObject = createFabricObjectFromBlock(block);
+        if (fabricObject) {
+          canvas.add(fabricObject);
+          console.log(`Added block ${index} to canvas with final properties:`, {
+            id: fabricObject.id,
+            type: fabricObject.blockType,
+            position: { left: fabricObject.left, top: fabricObject.top },
+            size: { width: fabricObject.width, height: fabricObject.height },
+            visible: fabricObject.visible,
+            text: fabricObject.text || "N/A",
+          });
+        } else {
+          console.warn(`Failed to create fabric object for block ${index}`, {
+            blockType: block.type,
+          });
+        }
+      });
+
+      console.log("Rendering all canvas objects");
+      canvas.renderAll();
+      console.log("Canvas rendering complete");
+
+      // DEBUG: Log final canvas state
+      console.log("Final canvas state:", {
+        totalObjects: canvas.getObjects().length,
+        objectTypes: canvas.getObjects().map((obj: any) => ({
+          id: obj.id,
+          type: obj.blockType || obj.type,
+          visible: obj.visible,
+          text: obj.text || "N/A",
+        })),
+      });
+    } else {
+      console.log("No changes detected, skipping re-render");
+    }
+  }, [
+    canvas,
+    blocks,
+    showGrid,
+    config.canvas.width,
+    config.canvas.height,
+    isInitialized,
+  ]);
+
+  // ADD DEBUG FUNCTION to inspect canvas objects
+  const debugCanvasObjects = useCallback(() => {
+    if (!canvas) return;
+
+    const objects = canvas.getObjects();
+    console.log("=== CANVAS DEBUG INFO ===");
+    console.log("Total objects:", objects.length);
+
+    objects.forEach((obj: any, index: number) => {
+      console.log(`Object ${index}:`, {
+        id: obj.id,
+        type: obj.blockType || obj.type,
+        position: { left: obj.left, top: obj.top },
+        size: { width: obj.width, height: obj.height },
+        visible: obj.visible,
+        text: obj.text || "N/A",
+        fill: obj.fill,
+        fontSize: obj.fontSize,
+        fontFamily: obj.fontFamily,
+      });
+    });
+
+    console.log("Canvas viewport:", {
+      zoom: canvas.getZoom(),
+      transform: canvas.viewportTransform,
+    });
+    console.log("========================");
+  }, [canvas]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as any).debugCanvas = debugCanvasObjects;
+    }
+  }, [debugCanvasObjects]);
+
   // Add grid to canvas
-  const addGridToCanvas = (canvas: any, canvasWidth: number, canvasHeight: number) => {
-    console.log('Adding grid to canvas', { 
-      canvasWidth, 
+  const addGridToCanvas = (
+    canvas: any,
+    canvasWidth: number,
+    canvasHeight: number
+  ) => {
+    console.log("Adding grid to canvas", {
+      canvasWidth,
       canvasHeight,
       hasFabric: !!fabric,
       gridSettings: {
         size: canvasState.grid.size,
         color: canvasState.grid.color,
-        opacity: canvasState.grid.opacity
-      }
+        opacity: canvasState.grid.opacity,
+      },
     });
-    
+
     if (!fabric) {
-      console.warn('Fabric not available, cannot add grid');
+      console.warn("Fabric not available, cannot add grid");
       return;
     }
-    
+
     const gridSize = canvasState.grid.size;
     const gridColor = canvasState.grid.color;
     const gridOpacity = canvasState.grid.opacity;
 
     try {
       // Vertical lines
-      console.log(`Adding ${Math.ceil(canvasWidth / gridSize) + 1} vertical grid lines`);
+      console.log(
+        `Adding ${Math.ceil(canvasWidth / gridSize) + 1} vertical grid lines`
+      );
       for (let i = 0; i <= canvasWidth; i += gridSize) {
         const line = new fabric.Line([i, 0, i, canvasHeight], {
           stroke: gridColor,
@@ -503,7 +849,9 @@ export const PDFCanvas: React.FC<PDFCanvasProps> = ({
       }
 
       // Horizontal lines
-      console.log(`Adding ${Math.ceil(canvasHeight / gridSize) + 1} horizontal grid lines`);
+      console.log(
+        `Adding ${Math.ceil(canvasHeight / gridSize) + 1} horizontal grid lines`
+      );
       for (let i = 0; i <= canvasHeight; i += gridSize) {
         const line = new fabric.Line([0, i, canvasWidth, i], {
           stroke: gridColor,
@@ -515,158 +863,119 @@ export const PDFCanvas: React.FC<PDFCanvasProps> = ({
         canvas.add(line);
         canvas.sendToBack(line);
       }
-      
-      console.log('Grid added successfully');
+
+      console.log("Grid added successfully");
     } catch (error) {
-      console.error('Error adding grid to canvas:', error);
+      console.error("Error adding grid to canvas:", error);
     }
   };
 
+  // Drag and drop functionality
+  const [{ isOver }, drop] = useDrop(
+    () => ({
+      accept: "block",
+      drop: (item: { type: BlockType }, monitor) => {
+        if (!canvas || !onBlockDrop) return;
+
+        const offset = monitor.getClientOffset();
+        const canvasRect = canvasRef.current?.getBoundingClientRect();
+
+        if (offset && canvasRect) {
+          // Convert screen coordinates to canvas coordinates
+          const zoom = canvas.getZoom();
+          const vpt = canvas.viewportTransform;
+
+          const position: Position = {
+            x: (offset.x - canvasRect.left - vpt[4]) / zoom,
+            y: (offset.y - canvasRect.top - vpt[5]) / zoom,
+          };
+
+          // Constrain position to canvas bounds
+          const constrainedPosition = {
+            x: Math.max(0, Math.min(position.x, config.canvas.width - 100)),
+            y: Math.max(0, Math.min(position.y, config.canvas.height - 50)),
+          };
+
+          console.log("Block dropped on canvas", {
+            blockType: item.type,
+            screenPosition: { x: offset.x, y: offset.y },
+            canvasPosition: position,
+            constrainedPosition,
+            canvasBounds: {
+              width: config.canvas.width,
+              height: config.canvas.height,
+            },
+          });
+
+          onBlockDrop(item.type, constrainedPosition);
+        }
+      },
+      collect: (monitor) => ({
+        isOver: monitor.isOver(),
+      }),
+    }),
+    [canvas, onBlockDrop, config.canvas.width, config.canvas.height]
+  );
+
   // Handle mouse wheel for zooming
-  const handleWheel = useCallback((e: WheelEvent) => {
-    if (!canvas || !e.ctrlKey) return;
+  const handleWheel = useCallback(
+    (e: WheelEvent) => {
+      if (!canvas || !e.ctrlKey) return;
 
-    e.preventDefault();
-    
-    const delta = e.deltaY;
-    const zoom = canvas.getZoom();
-    const newZoom = delta > 0 ? zoom * 0.9 : zoom * 1.1;
-    
-    // Constrain zoom
-    const constrainedZoom = Math.max(
-      config.constraints.minZoom,
-      Math.min(newZoom, config.constraints.maxZoom)
-    );
+      e.preventDefault();
 
-    // Zoom to mouse position
-    const pointer = canvas.getPointer(e);
-    canvas.zoomToPoint(pointer, constrainedZoom);
-    
-    setZoom(constrainedZoom);
-  }, [canvas, config.constraints, setZoom]);
+      const delta = e.deltaY;
+      const zoom = canvas.getZoom();
+      const newZoom = delta > 0 ? zoom * 0.9 : zoom * 1.1;
 
-  // Handle panning
-  const handleMouseDown = useCallback((e: fabric.IEvent) => {
-    if (!canvas) return;
+      // Constrain zoom
+      const constrainedZoom = Math.max(0.1, Math.min(5, newZoom));
 
-    const evt = e.e as MouseEvent;
-    
-    // Middle mouse button or space + left click for panning
-    if (evt.button === 1 || (evt.button === 0 && evt.shiftKey)) {
-      canvas.isDragging = true;
-      canvas.lastPosX = evt.clientX;
-      canvas.lastPosY = evt.clientY;
-      canvas.defaultCursor = 'grabbing';
-      evt.preventDefault();
-    }
-  }, [canvas]);
+      canvas.setZoom(constrainedZoom);
+      canvas.renderAll();
+    },
+    [canvas]
+  );
 
-  const handleMouseMove = useCallback((e: fabric.IEvent) => {
-    if (!canvas || !canvas.isDragging) return;
-
-    const evt = e.e as MouseEvent;
-    const deltaX = evt.clientX - canvas.lastPosX;
-    const deltaY = evt.clientY - canvas.lastPosY;
-    
-    pan(deltaX, deltaY);
-    
-    canvas.lastPosX = evt.clientX;
-    canvas.lastPosY = evt.clientY;
-  }, [canvas, pan]);
-
-  const handleMouseUp = useCallback(() => {
-    if (!canvas) return;
-    
-    canvas.isDragging = false;
-    canvas.defaultCursor = 'default';
-  }, [canvas]);
+  // Setup refs
+  const setRefs = useCallback(
+    (node: HTMLDivElement | null) => {
+      containerRef.current = node;
+      drop(node);
+    },
+    [drop]
+  );
 
   // Setup event listeners
   useEffect(() => {
-    console.log('Event listeners setup effect triggered', { 
-      hasCanvas: !!canvas, 
-      hasContainer: !!containerRef.current 
-    });
-    
-    if (!canvas || !containerRef.current) {
-      console.log('Skipping event listener setup - dependencies not ready', { 
-        hasCanvas: !!canvas, 
-        hasContainer: !!containerRef.current 
-      });
-      return;
-    }
-
-    console.log('Setting up canvas event listeners');
     const container = containerRef.current;
-
-    // Mouse wheel for zoom
-    container.addEventListener('wheel', handleWheel, { passive: false });
-    console.log('Added wheel event listener');
-
-    // Canvas events for panning
-    canvas.on('mouse:down', handleMouseDown);
-    canvas.on('mouse:move', handleMouseMove);
-    canvas.on('mouse:up', handleMouseUp);
-    console.log('Added canvas mouse event listeners');
-
-    return () => {
-      console.log('Cleaning up event listeners');
-      container.removeEventListener('wheel', handleWheel);
-      canvas.off('mouse:down', handleMouseDown);
-      canvas.off('mouse:move', handleMouseMove);
-      canvas.off('mouse:up', handleMouseUp);
-    };
-  }, [canvas, handleWheel, handleMouseDown, handleMouseMove, handleMouseUp]);
-
-  // Drop zone for drag and drop
-  const [{ isOver }, drop] = useDrop({
-    accept: 'block',
-    drop: (item: { type: BlockType }, monitor) => {
-      if (!canvas || !onBlockDrop) return;
-
-      const clientOffset = monitor.getClientOffset();
-      if (!clientOffset) return;
-
-      const canvasRect = canvas.getElement().getBoundingClientRect();
-      const canvasPointer = {
-        x: clientOffset.x - canvasRect.left,
-        y: clientOffset.y - canvasRect.top,
+    if (container) {
+      container.addEventListener("wheel", handleWheel, { passive: false });
+      return () => {
+        container.removeEventListener("wheel", handleWheel);
       };
+    }
+  }, [handleWheel]);
 
-      // Transform to canvas coordinates
-      const zoom = canvas.getZoom();
-      const vpt = canvas.viewportTransform;
-      if (vpt) {
-        const position = {
-          x: (canvasPointer.x - vpt[4]) / zoom,
-          y: (canvasPointer.y - vpt[5]) / zoom,
-        };
-        onBlockDrop(item.type, position);
-      }
-    },
-    collect: (monitor) => ({
-      isOver: monitor.isOver(),
-    }),
-  });
-
-  // Combine refs
-  const setRefs = useCallback((element: HTMLDivElement) => {
-    containerRef.current = element;
-    drop(element);
-  }, [drop]);
-
-  console.log('Rendering PDFCanvas component', { 
-    isInitialized, 
-    hasCanvas: !!canvas, 
+  // Debug info
+  console.log("Rendering PDFCanvas component", {
+    isInitialized,
+    hasCanvas: !!canvas,
     canvasRef: !!canvasRef.current,
-    containerRef: !!containerRef.current
+    containerRef: !!containerRef.current,
+    containerSize: { width, height },
+    canvasLogicalSize: {
+      width: config.canvas.width,
+      height: config.canvas.height,
+    },
+    blocksCount: blocks.length,
   });
 
   return (
-    <div 
+    <div
       ref={setRefs}
       className={`relative w-full h-full overflow-hidden ${
-        isOver ? 'bg-blue-50 ring-2 ring-blue-300' : 'bg-gray-100'
+        isOver ? "bg-blue-50 ring-2 ring-blue-300" : "bg-gray-100"
       }`}
     >
       {/* Rulers */}
@@ -678,7 +987,7 @@ export const PDFCanvas: React.FC<PDFCanvasProps> = ({
               {/* Ruler marks would go here */}
             </div>
           </div>
-          
+
           {/* Vertical ruler */}
           <div className="absolute top-8 left-0 bottom-0 w-8 bg-white border-r border-gray-300 z-10">
             <div className="w-full h-full flex flex-col justify-start text-xs text-gray-500">
@@ -689,61 +998,56 @@ export const PDFCanvas: React.FC<PDFCanvasProps> = ({
       )}
 
       {/* Canvas container */}
-      <div 
+      <div
         className="absolute inset-0 overflow-hidden"
         style={{
           top: showRulers ? 32 : 0,
           left: showRulers ? 32 : 0,
         }}
       >
-        <canvas 
+        <canvas
           ref={canvasRef}
-          width={width}
-          height={height}
           className="block border border-gray-300 shadow-sm"
           style={{
-            background: 'white',
-            margin: '20px',
-            maxWidth: 'calc(100% - 40px)',
-            maxHeight: 'calc(100% - 40px)',
+            background: "white",
+            margin: "20px",
+            maxWidth: "calc(100% - 40px)",
+            maxHeight: "calc(100% - 40px)",
           }}
+          {...({ willReadFrequently: true } as any)}
         />
       </div>
 
       {/* Canvas controls - only show when initialized */}
       {isInitialized && (
-        <CanvasControls 
-          canvas={canvas}
-          className="absolute bottom-4 right-4"
-        />
+        <CanvasControls canvas={canvas} className="absolute bottom-4 right-4" />
       )}
 
       {/* Loading overlay - show when not initialized */}
       {!isInitialized && (
         <div className="absolute inset-0 bg-gray-100 bg-opacity-80 flex items-center justify-center z-30">
           <div className="bg-white p-6 rounded-lg shadow-lg text-center">
-            <div className="text-lg text-gray-600 mb-2">Initializing Canvas...</div>
-            <div className="text-sm text-gray-500 mb-1">
-              Canvas reference: {canvasRef.current ? 'Available' : 'Not available'}
+            <div className="text-lg text-gray-600 mb-2">
+              Initializing Canvas...
             </div>
             <div className="text-sm text-gray-500 mb-1">
-              Container reference: {containerRef.current ? 'Available' : 'Not available'}
+              Canvas reference:{" "}
+              {canvasRef.current ? "Available" : "Not available"}
             </div>
             <div className="text-sm text-gray-500 mb-1">
-              Canvas dimensions: {width}x{height}
+              Container reference:{" "}
+              {containerRef.current ? "Available" : "Not available"}
+            </div>
+            <div className="text-sm text-gray-500 mb-1">
+              Canvas dimensions: {config.canvas.width}x{config.canvas.height}
+            </div>
+            <div className="text-sm text-gray-500 mb-1">
+              Container dimensions: {width}x{height}
             </div>
             <div className="text-xs text-gray-400 mt-2">
-              If this message persists, please check the browser console for errors.
+              If this message persists, please check the browser console for
+              errors.
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Drop indicator */}
-      {isOver && (
-        <div className="absolute inset-0 bg-blue-500 bg-opacity-10 border-2 border-dashed border-blue-400 flex items-center justify-center pointer-events-none z-20">
-          <div className="bg-blue-600 text-white px-4 py-2 rounded-lg text-lg font-semibold shadow-lg">
-            Drop Block Here
           </div>
         </div>
       )}
