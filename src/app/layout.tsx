@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter, Roboto, Open_Sans, Lato, Poppins } from 'next/font/google';
 import './globals.css';
+import './pdf-viewer.css';
 
 // Load fonts for the application
 const inter = Inter({ 

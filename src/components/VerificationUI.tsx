@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { GeminiAnalysisResponse, ExtractedQuestion, DocumentSection } from '@/types/gemini';
+import { PDFViewer } from './PDFViewer';
+import { ContentEditor } from './ContentEditor';
 
 interface VerificationUIProps {
   file: File;
@@ -21,7 +23,7 @@ export function VerificationUI({
   isProcessing = false
 }: VerificationUIProps) {
   const [editedResult, setEditedResult] = useState<GeminiAnalysisResponse>(analysisResult);
-  const [activeTab, setActiveTab] = useState<'overview' | 'questions' | 'sections'>('overview');
+  // We no longer need the activeTab state as it's handled by the ContentEditor component
   const [pdfUrl, setPdfUrl] = useState<string>('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -184,89 +186,39 @@ export function VerificationUI({
         )}
       </div>
 
-      {/* Main Content - Split Screen with improved height and scrolling */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 h-[700px]">
-        {/* Left Panel - PDF Preview with better scrolling */}
-        <div className="border-r border-gray-200 flex flex-col h-full">
-          <div className="p-4 border-b border-gray-200 bg-gray-50 flex-shrink-0">
-            <h3 className="text-sm font-medium text-gray-900">Original Document</h3>
-            <p className="text-xs text-gray-600 mt-1">{file.name}</p>
+      {/* Main Content - Split Screen with enhanced components */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 h-[700px] gap-4">
+        {/* Left Panel - Enhanced PDF Viewer */}
+        <div className="border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm">
+          <div className="p-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-gray-900">Original Document</h3>
+              <p className="text-xs text-gray-600 mt-0.5">{file.name}</p>
+            </div>
           </div>
-          <div className="flex-1 overflow-auto" style={{ height: "calc(100% - 70px)" }}>
-            {pdfUrl ? (
-              <iframe
-                src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
-                className="w-full h-full"
-                title="PDF Preview"
-                style={{ border: 'none' }}
-              />
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                <div className="text-center">
-                  <div className="text-4xl mb-2">📄</div>
-                  <p className="text-sm">Loading PDF preview...</p>
-                </div>
-              </div>
-            )}
+          
+          {/* PDF Viewer Component */}
+          <div className="h-[calc(100%-48px)]">
+            <PDFViewer file={file} dataUrl={pdfUrl} />
           </div>
         </div>
 
-        {/* Right Panel - Editable Content with improved scrolling */}
-        <div className="flex flex-col h-full">
-          {/* Tabs */}
-          <div className="border-b border-gray-200 bg-gray-50 flex-shrink-0">
-            <nav className="flex space-x-8 px-6">
-              {[
-                { id: 'overview', label: 'Overview', count: null },
-                { id: 'questions', label: 'Questions', count: editedResult.extractedQuestions.length },
-                { id: 'sections', label: 'Sections', count: editedResult.documentStructure.sections.length }
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                    activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  {tab.label}
-                  {tab.count !== null && (
-                    <span className="ml-2 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">
-                      {tab.count}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </nav>
-          </div>
-
-          {/* Tab Content with improved scrolling */}
-          <div className="flex-1 p-6 overflow-y-auto" style={{ height: "calc(100% - 53px)" }}>
-            {activeTab === 'overview' && (
-              <OverviewTab
-                editedResult={editedResult}
-                analysisResult={analysisResult}
-                onUpdateDocumentInfo={updateDocumentInfo}
-              />
-            )}
-
-            {activeTab === 'questions' && (
-              <QuestionsTab
-                questions={editedResult.extractedQuestions}
-                onUpdateQuestion={updateQuestion}
-                onAddQuestion={addNewQuestion}
-                onRemoveQuestion={removeQuestion}
-              />
-            )}
-
-            {activeTab === 'sections' && (
-              <SectionsTab
-                sections={editedResult.documentStructure.sections}
-                onUpdateSection={updateSection}
-              />
-            )}
-          </div>
+        {/* Right Panel - Enhanced Content Editor */}
+        <div className="h-full">
+          <ContentEditor 
+            title={editedResult.extractedContent.title}
+            subtitle={editedResult.extractedContent.subtitle || ''}
+            subject={editedResult.documentStructure.subject || ''}
+            questions={editedResult.extractedQuestions}
+            sections={editedResult.documentStructure.sections}
+            onUpdateTitle={(title) => updateDocumentInfo('title', title)}
+            onUpdateSubtitle={(subtitle) => updateDocumentInfo('subtitle', subtitle)}
+            onUpdateSubject={(subject) => updateDocumentInfo('subject', subject)}
+            onUpdateQuestion={updateQuestion}
+            onAddQuestion={addNewQuestion}
+            onRemoveQuestion={removeQuestion}
+            onUpdateSection={updateSection}
+          />
         </div>
       </div>
 

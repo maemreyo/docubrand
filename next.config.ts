@@ -27,8 +27,24 @@ const nextConfig = {
       };
     }
 
+    // This is needed for PDF.js to work properly
+    config.resolve.alias.canvas = false;
+    config.resolve.alias.encoding = false;
+
+    // Handle PDF.js worker
+    config.module.rules.push({
+      test: /pdf\.worker\.(min\.)?mjs$/,
+      type: "asset/resource",
+      generator: {
+        filename: "static/chunks/[name].[hash][ext]",
+      },
+    });
+
     return config;
   },
+
+  reactStrictMode: true,
+  swcMinify: false, // Disable SWC minify to avoid issues with PDF.js
 
   // Optimize images and static assets
   images: {
