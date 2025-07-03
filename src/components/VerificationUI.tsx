@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { GeminiAnalysisResponse, ExtractedQuestion, DocumentSection } from '@/types/gemini';
-import { PDFViewer } from './PDFViewer';
 import { ContentEditor } from './ContentEditor';
+import { DirectPDFViewer } from './DirectPDFViewer';
 
 interface VerificationUIProps {
   file: File;
@@ -199,7 +199,7 @@ export function VerificationUI({
           
           {/* PDF Viewer Component */}
           <div className="h-[calc(100%-48px)]">
-            <PDFViewer file={file} dataUrl={pdfUrl} />
+            <DirectPDFViewer file={file} dataUrl={pdfUrl} />
           </div>
         </div>
 

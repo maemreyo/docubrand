@@ -1,0 +1,360 @@
+// src/components/DirectPDFViewer.tsx
+// CREATED: 2025-07-03 - Direct PDF.js implementation bypassing react-pdf entirely
+
+'use client';
+
+import { useEffect, useRef, useState, useCallback } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
+import type { PDFDocumentProxy, PDFPageProxy, RenderParameters } from 'pdfjs-dist';
+
+// Set worker source - use CDN for reliability
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+
+interface DirectPDFViewerProps {
+  file: File | null;
+  dataUrl: string | null;
+}
+
+interface PDFState {
+  document: PDFDocumentProxy | null;
+  currentPage: number;
+  totalPages: number;
+  scale: number;
+  rotation: number;
+  loading: boolean;
+  error: string | null;
+}
+
+export function DirectPDFViewer({ file, dataUrl }: DirectPDFViewerProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [pdfState, setPdfState] = useState<PDFState>({
+    document: null,
+    currentPage: 1,
+    totalPages: 0,
+    scale: 1.0,
+    rotation: 0,
+    loading: false,
+    error: null,
+  });
+
+  // Load PDF document
+  const loadPDF = useCallback(async () => {
+    if (!file && !dataUrl) return;
+
+    setPdfState(prev => ({ ...prev, loading: true, error: null }));
+
+    try {
+      let loadingTask;
+      
+      if (file) {
+        // Load from File object
+        const arrayBuffer = await file.arrayBuffer();
+        loadingTask = pdfjsLib.getDocument({
+          data: arrayBuffer,
+          verbosity: 0, // Reduce console noise
+          disableRange: false,
+          disableStream: false,
+        });
+      } else if (dataUrl) {
+        // Load from data URL
+        loadingTask = pdfjsLib.getDocument({
+          url: dataUrl,
+          verbosity: 0,
+        });
+      } else {
+        throw new Error('No file or data URL provided');
+      }
+
+      const pdfDocument = await loadingTask.promise;
+      
+      console.log(`✅ PDF loaded: ${pdfDocument.numPages} pages`);
+      
+      setPdfState(prev => ({
+        ...prev,
+        document: pdfDocument,
+        totalPages: pdfDocument.numPages,
+        currentPage: 1,
+        loading: false,
+        error: null,
+      }));
+
+      // Render first page
+      await renderPage(1, pdfDocument);
+
+    } catch (error) {
+      console.error('❌ PDF loading failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setPdfState(prev => ({
+        ...prev,
+        loading: false,
+        error: `Failed to load PDF: ${errorMessage}`,
+      }));
+    }
+  }, [file, dataUrl]);
+
+  // Render specific page
+  const renderPage = useCallback(async (pageNumber: number, pdfDoc?: PDFDocumentProxy) => {
+    const document = pdfDoc || pdfState.document;
+    const canvas = canvasRef.current;
+    
+    if (!document || !canvas) return;
+
+    try {
+      console.log(`🎨 Rendering page ${pageNumber}`);
+      
+      const page: PDFPageProxy = await document.getPage(pageNumber);
+      const viewport = page.getViewport({ 
+        scale: pdfState.scale,
+        rotation: pdfState.rotation 
+      });
+
+      // Setup canvas
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Cannot get 2D context');
+
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      // Render page
+      const renderContext: RenderParameters = {
+        canvasContext: context,
+        viewport: viewport,
+        background: 'white',
+        enableWebGL: false,
+      };
+
+      await page.render(renderContext).promise;
+      console.log(`✅ Page ${pageNumber} rendered successfully`);
+
+    } catch (error) {
+      console.error(`❌ Page ${pageNumber} rendering failed:`, error);
+      setPdfState(prev => ({
+        ...prev,
+        error: `Failed to render page ${pageNumber}`,
+      }));
+    }
+  }, [pdfState.document, pdfState.scale, pdfState.rotation]);
+
+  // Navigation functions
+  const goToPage = useCallback(async (pageNumber: number) => {
+    if (pageNumber < 1 || pageNumber > pdfState.totalPages) return;
+    
+    setPdfState(prev => ({ ...prev, currentPage: pageNumber }));
+    await renderPage(pageNumber);
+  }, [pdfState.totalPages, renderPage]);
+
+  const goToPrevPage = useCallback(() => {
+    goToPage(pdfState.currentPage - 1);
+  }, [pdfState.currentPage, goToPage]);
+
+  const goToNextPage = useCallback(() => {
+    goToPage(pdfState.currentPage + 1);
+  }, [pdfState.currentPage, goToPage]);
+
+  // Zoom functions
+  const setScale = useCallback(async (newScale: number) => {
+    const clampedScale = Math.max(0.5, Math.min(3.0, newScale));
+    setPdfState(prev => ({ ...prev, scale: clampedScale }));
+    await renderPage(pdfState.currentPage);
+  }, [pdfState.currentPage, renderPage]);
+
+  const zoomIn = useCallback(() => {
+    setScale(pdfState.scale + 0.2);
+  }, [pdfState.scale, setScale]);
+
+  const zoomOut = useCallback(() => {
+    setScale(pdfState.scale - 0.2);
+  }, [pdfState.scale, setScale]);
+
+  const resetZoom = useCallback(() => {
+    setScale(1.0);
+  }, [setScale]);
+
+  // Rotation functions
+  const setRotation = useCallback(async (newRotation: number) => {
+    const normalizedRotation = ((newRotation % 360) + 360) % 360;
+    setPdfState(prev => ({ ...prev, rotation: normalizedRotation }));
+    await renderPage(pdfState.currentPage);
+  }, [pdfState.currentPage, renderPage]);
+
+  const rotateClockwise = useCallback(() => {
+    setRotation(pdfState.rotation + 90);
+  }, [pdfState.rotation, setRotation]);
+
+  const rotateCounterClockwise = useCallback(() => {
+    setRotation(pdfState.rotation - 90);
+  }, [pdfState.rotation, setRotation]);
+
+  // Load PDF when file/dataUrl changes
+  useEffect(() => {
+    loadPDF();
+  }, [loadPDF]);
+
+  // Re-render when scale or rotation changes
+  useEffect(() => {
+    if (pdfState.document && pdfState.currentPage > 0) {
+      renderPage(pdfState.currentPage);
+    }
+  }, [pdfState.scale, pdfState.rotation, renderPage, pdfState.document, pdfState.currentPage]);
+
+  return (
+    <div className="flex flex-col h-full bg-gray-50">
+      {/* Toolbar */}
+      <div className="bg-white border-b border-gray-200 p-3 flex items-center justify-between flex-wrap gap-3">
+        {/* Status */}
+        <div className="flex items-center space-x-2">
+          <div className={`w-2 h-2 rounded-full ${
+            pdfState.error ? 'bg-red-500' : 
+            pdfState.loading ? 'bg-yellow-500' : 
+            pdfState.document ? 'bg-green-500' : 'bg-gray-300'
+          }`} />
+          <span className="text-sm text-gray-600">
+            {pdfState.error ? 'Error' :
+             pdfState.loading ? 'Loading...' :
+             pdfState.document ? 'Ready' : 'No PDF'}
+          </span>
+        </div>
+
+        {/* Page Navigation */}
+        {pdfState.document && (
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={goToPrevPage}
+              disabled={pdfState.currentPage <= 1}
+              className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="Previous page"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+              </svg>
+            </button>
+            
+            <span className="text-sm font-medium">
+              {pdfState.currentPage} / {pdfState.totalPages}
+            </span>
+            
+            <button
+              onClick={goToNextPage}
+              disabled={pdfState.currentPage >= pdfState.totalPages}
+              className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="Next page"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {/* Zoom Controls */}
+        {pdfState.document && (
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={zoomOut}
+              disabled={pdfState.scale <= 0.5}
+              className="p-2 rounded hover:bg-gray-100 disabled:opacity-50"
+              aria-label="Zoom out"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M5 10a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z" clipRule="evenodd" />
+              </svg>
+            </button>
+            
+            <span className="text-sm font-medium min-w-[3rem] text-center">
+              {Math.round(pdfState.scale * 100)}%
+            </span>
+            
+            <button
+              onClick={zoomIn}
+              disabled={pdfState.scale >= 3.0}
+              className="p-2 rounded hover:bg-gray-100 disabled:opacity-50"
+              aria-label="Zoom in"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+              </svg>
+            </button>
+            
+            <button
+              onClick={resetZoom}
+              className="px-3 py-1 text-sm bg-gray-100 rounded hover:bg-gray-200"
+            >
+              Reset
+            </button>
+          </div>
+        )}
+
+        {/* Rotation Controls */}
+        {pdfState.document && (
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={rotateCounterClockwise}
+              className="p-2 rounded hover:bg-gray-100"
+              aria-label="Rotate counterclockwise"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.707-10.293a1 1 0 00-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L9.414 11H13a1 1 0 100-2H9.414l1.293-1.293z" clipRule="evenodd" />
+              </svg>
+            </button>
+            
+            <button
+              onClick={rotateClockwise}
+              className="p-2 rounded hover:bg-gray-100"
+              aria-label="Rotate clockwise"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* PDF Canvas Container */}
+      <div className="flex-1 overflow-auto bg-gray-50 flex items-center justify-center p-4">
+        {pdfState.loading && (
+          <div className="flex flex-col items-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+            <p className="text-gray-600">Loading PDF...</p>
+          </div>
+        )}
+
+        {pdfState.error && (
+          <div className="flex flex-col items-center text-center max-w-md">
+            <div className="text-red-500 text-4xl mb-4">⚠️</div>
+            <h3 className="text-lg font-semibold text-red-600 mb-2">PDF Load Error</h3>
+            <p className="text-gray-600 mb-4">{pdfState.error}</p>
+            <button
+              onClick={loadPDF}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            >
+              Try Again
+            </button>
+          </div>
+        )}
+
+        {pdfState.document && !pdfState.loading && !pdfState.error && (
+          <div className="flex flex-col items-center">
+            <canvas
+              ref={canvasRef}
+              className="border border-gray-300 shadow-lg rounded"
+              style={{ maxWidth: '100%', height: 'auto' }}
+            />
+            <div className="mt-4 text-sm text-gray-500">
+              Page {pdfState.currentPage} of {pdfState.totalPages} • {Math.round(pdfState.scale * 100)}% zoom
+              {pdfState.rotation > 0 && ` • ${pdfState.rotation}° rotated`}
+            </div>
+          </div>
+        )}
+
+        {!file && !dataUrl && !pdfState.loading && (
+          <div className="flex flex-col items-center text-center">
+            <div className="text-gray-300 text-6xl mb-4">📄</div>
+            <h3 className="text-lg font-medium text-gray-600 mb-2">No PDF Selected</h3>
+            <p className="text-gray-500">Upload a PDF file to start viewing</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
