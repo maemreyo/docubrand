@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Collapsible from '@radix-ui/react-collapsible';
 import { ExtractedQuestion, DocumentSection } from '@/types/gemini';
@@ -482,8 +482,65 @@ function SectionsTab({
   sections: DocumentSection[];
   onUpdateSection: (sectionId: string, section: DocumentSection) => void;
 }) {
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const sectionRefs = useRef<{[key: string]: HTMLDivElement | null}>({});
+
+  // Filter sections based on search term
+  const filteredSections = sections.filter(section => 
+    section.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    section.type.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  // Group sections by page for better organization
+  const sectionsByPage = filteredSections.reduce<{[key: number]: DocumentSection[]}>((acc, section) => {
+    const page = section.position.page;
+    if (!acc[page]) acc[page] = [];
+    acc[page].push(section);
+    return acc;
+  }, {});
+
+  // Sort pages numerically
+  const sortedPages = Object.keys(sectionsByPage).map(Number).sort((a, b) => a - b);
+
+  // Handle keyboard navigation
+  const handleKeyDown = (e: React.KeyboardEvent, sections: DocumentSection[]) => {
+    if (!activeSection) return;
+    
+    const currentIndex = sections.findIndex(s => s.id === activeSection);
+    if (currentIndex === -1) return;
+    
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        if (currentIndex < sections.length - 1) {
+          const nextSection = sections[currentIndex + 1];
+          setActiveSection(nextSection.id);
+          sectionRefs.current[nextSection.id]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        if (currentIndex > 0) {
+          const prevSection = sections[currentIndex - 1];
+          setActiveSection(prevSection.id);
+          sectionRefs.current[prevSection.id]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        break;
+      case 'Enter':
+        e.preventDefault();
+        // Toggle the active section
+        const sectionElement = sectionRefs.current[activeSection];
+        if (sectionElement) {
+          const button = sectionElement.querySelector('button[data-edit]');
+          button?.click();
+        }
+        break;
+    }
+  };
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" onKeyDown={(e) => handleKeyDown(e, filteredSections)}>
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-sm font-medium text-gray-900">
@@ -493,6 +550,26 @@ function SectionsTab({
             Edit content sections extracted from your document
           </p>
         </div>
+        
+        {/* Search input */}
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="Search sections..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-64 px-3 py-2 pl-9 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <svg 
+            xmlns="http://www.w3.org/2000/svg" 
+            className="h-4 w-4 text-gray-400 absolute left-3 top-2.5" 
+            fill="none" 
+            viewBox="0 0 24 24" 
+            stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
       </div>
 
       {sections.length === 0 ? (
@@ -501,34 +578,99 @@ function SectionsTab({
           <p className="text-gray-600">No sections have been extracted</p>
         </div>
       ) : (
-        <div className="space-y-6 max-h-[600px] overflow-y-auto pr-2">
-          {sections.map((section) => (
-            <SectionEditor
-              key={section.id}
-              section={section}
-              onUpdate={(updatedSection) => onUpdateSection(section.id, updatedSection)}
-            />
-          ))}
+        <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+          {searchTerm && filteredSections.length === 0 ? (
+            <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
+              <p className="text-gray-600">No sections match your search</p>
+            </div>
+          ) : (
+            sortedPages.map(page => (
+              <div key={page} className="mb-6">
+                <div className="flex items-center mb-2">
+                  <div className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium">
+                    Page {page}
+                  </div>
+                  <div className="ml-2 text-xs text-gray-500">
+                    {sectionsByPage[page].length} section{sectionsByPage[page].length !== 1 ? 's' : ''}
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  {sectionsByPage[page]
+                    .sort((a, b) => a.position.order - b.position.order)
+                    .map((section) => (
+                      <SectionEditor
+                        key={section.id}
+                        section={section}
+                        onUpdate={(updatedSection) => onUpdateSection(section.id, updatedSection)}
+                        isActive={activeSection === section.id}
+                        onActivate={() => setActiveSection(section.id)}
+                        ref={(el) => sectionRefs.current[section.id] = el}
+                      />
+                    ))
+                  }
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
+      
+      {/* Keyboard navigation help */}
+      <div className="mt-4 bg-gray-50 p-3 rounded-lg border border-gray-200">
+        <h4 className="text-xs font-medium text-gray-700 mb-2">Keyboard Navigation</h4>
+        <div className="flex flex-wrap gap-3">
+          <div className="flex items-center text-xs text-gray-600">
+            <span className="bg-gray-200 px-1.5 py-0.5 rounded mr-1.5 font-mono">↑</span>
+            <span className="bg-gray-200 px-1.5 py-0.5 rounded mr-1.5 font-mono">↓</span>
+            Navigate sections
+          </div>
+          <div className="flex items-center text-xs text-gray-600">
+            <span className="bg-gray-200 px-1.5 py-0.5 rounded mr-1.5 font-mono">Enter</span>
+            Edit section
+          </div>
+          <div className="flex items-center text-xs text-gray-600">
+            <span className="bg-gray-200 px-1.5 py-0.5 rounded mr-1.5 font-mono">Esc</span>
+            Close editor
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
 // Section Editor Component
-function SectionEditor({
-  section,
-  onUpdate
-}: {
+const SectionEditor = React.forwardRef<HTMLDivElement, {
   section: DocumentSection;
   onUpdate: (section: DocumentSection) => void;
-}) {
-  const [isOpen, setIsOpen] = useState(true);
+  isActive: boolean;
+  onActivate: () => void;
+}>(({ section, onUpdate, isActive, onActivate }, ref) => {
+  const [isEditing, setIsEditing] = useState(false);
   const [displayContent, setDisplayContent] = useState(section.content);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Get type color based on section type
+  const getTypeColor = (type: string) => {
+    switch (type) {
+      case 'header': return 'bg-purple-100 text-purple-800';
+      case 'question': return 'bg-blue-100 text-blue-800';
+      case 'answer': return 'bg-green-100 text-green-800';
+      case 'instruction': return 'bg-yellow-100 text-yellow-800';
+      case 'content': return 'bg-gray-100 text-gray-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
 
   useEffect(() => {
     setDisplayContent(section.content);
   }, [section.content]);
+
+  useEffect(() => {
+    if (isEditing && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [isEditing]);
 
   const handleContentChange = (value: string) => {
     setDisplayContent(value);
@@ -543,72 +685,91 @@ function SectionEditor({
     return Math.max(minRows, Math.min(lines + 2, maxRows));
   };
 
+  // Handle keyboard events in the editor
+  const handleEditorKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      setIsEditing(false);
+    }
+  };
+
+  // Get preview content (first 100 characters)
+  const getPreviewContent = (content: string) => {
+    if (!content) return 'Empty content';
+    const trimmed = content.trim();
+    return trimmed.length > 100 ? `${trimmed.substring(0, 100)}...` : trimmed;
+  };
+
   return (
-    <Collapsible.Root open={isOpen} onOpenChange={setIsOpen} className="border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm">
-      <Collapsible.Trigger asChild>
-        <div className="p-4 flex items-center justify-between cursor-pointer hover:bg-gray-50">
-          <div className="flex items-center gap-3">
-            <div className="bg-gray-100 text-gray-800 w-6 h-6 rounded-full flex items-center justify-center text-sm font-medium">
-              {section.position.order}
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-900">
-                {section.type.charAt(0).toUpperCase() + section.type.slice(1)}
-              </p>
-              <p className="text-xs text-gray-500">
-                Page {section.position.page}
-              </p>
-            </div>
+    <div 
+      ref={ref}
+      className={`border rounded-lg overflow-hidden transition-all ${
+        isActive ? 'border-blue-400 shadow-sm' : 'border-gray-200'
+      } ${isEditing ? 'bg-white' : 'bg-white hover:bg-gray-50'}`}
+      onClick={onActivate}
+    >
+      {/* Section Header - Always visible */}
+      <div className="flex items-center justify-between p-3">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          {/* Type Badge */}
+          <div className={`px-2 py-0.5 rounded text-xs font-medium ${getTypeColor(section.type)}`}>
+            {section.type.charAt(0).toUpperCase() + section.type.slice(1)}
           </div>
-          <div className="flex items-center">
-            <svg 
-              xmlns="http://www.w3.org/2000/svg" 
-              className={`h-5 w-5 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} 
-              viewBox="0 0 20 20" 
-              fill="currentColor"
-            >
-              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
+          
+          {/* Order Badge */}
+          <div className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full text-xs">
+            #{section.position.order}
+          </div>
+          
+          {/* Content Preview */}
+          <div className="text-sm text-gray-700 truncate flex-1">
+            {!isEditing && getPreviewContent(section.content)}
           </div>
         </div>
-      </Collapsible.Trigger>
+        
+        <div className="flex items-center gap-2">
+          {/* Edit Button */}
+          <button
+            data-edit="true"
+            onClick={() => setIsEditing(!isEditing)}
+            className="p-1 text-gray-400 hover:text-blue-500 transition-colors"
+            aria-label={isEditing ? "Close editor" : "Edit section"}
+          >
+            {isEditing ? (
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+              </svg>
+            )}
+          </button>
+        </div>
+      </div>
       
-      <Collapsible.Content>
-        <div className="p-4 border-t border-gray-200 space-y-4">
+      {/* Expanded Editor */}
+      {isEditing && (
+        <div className="p-3 border-t border-gray-200 space-y-3" onKeyDown={handleEditorKeyDown}>
           {/* Section Type */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Section Type
-            </label>
-            <select
-              value={section.type}
-              onChange={(e) => onUpdate({ ...section, type: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="header">Header</option>
-              <option value="question">Question</option>
-              <option value="answer">Answer</option>
-              <option value="instruction">Instruction</option>
-              <option value="content">Content</option>
-            </select>
-          </div>
-          
-          {/* Section Content */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Content
-            </label>
-            <textarea
-              value={displayContent}
-              onChange={(e) => handleContentChange(e.target.value)}
-              rows={calculateRows(displayContent)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono resize-y min-h-[100px]"
-              placeholder="Section content..."
-            />
-          </div>
-          
-          {/* Position Information */}
-          <div className="flex gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Section Type
+              </label>
+              <select
+                value={section.type}
+                onChange={(e) => onUpdate({ ...section, type: e.target.value })}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="header">Header</option>
+                <option value="question">Question</option>
+                <option value="answer">Answer</option>
+                <option value="instruction">Instruction</option>
+                <option value="content">Content</option>
+              </select>
+            </div>
+            
+            {/* Position Information */}
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
                 Page
@@ -624,7 +785,7 @@ function SectionEditor({
                     page: parseInt(e.target.value) || 1 
                   } 
                 })}
-                className="w-20 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-16 px-2 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
             
@@ -643,12 +804,43 @@ function SectionEditor({
                     order: parseInt(e.target.value) || 1 
                   } 
                 })}
-                className="w-20 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-16 px-2 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
           </div>
+          
+          {/* Section Content */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Content
+            </label>
+            <textarea
+              ref={textareaRef}
+              value={displayContent}
+              onChange={(e) => handleContentChange(e.target.value)}
+              rows={calculateRows(displayContent)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono resize-y min-h-[100px]"
+              placeholder="Section content..."
+            />
+            
+            {/* Content stats */}
+            <div className="flex items-center justify-between mt-1 text-xs text-gray-500">
+              <div className="flex items-center gap-3">
+                <span>{displayContent.length} characters</span>
+                <span>{displayContent.split('\n').length} lines</span>
+              </div>
+              <button
+                onClick={() => setIsEditing(false)}
+                className="text-blue-600 hover:text-blue-700"
+              >
+                Done
+              </button>
+            </div>
+          </div>
         </div>
-      </Collapsible.Content>
-    </Collapsible.Root>
+      )}
+    </div>
   );
-}
+});
+
+SectionEditor.displayName = 'SectionEditor';
