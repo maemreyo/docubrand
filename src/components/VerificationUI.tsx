@@ -1,9 +1,14 @@
+// UPDATED: 2025-07-03 - Integrated enhanced SectionEditor components
+
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
 import { GeminiAnalysisResponse, ExtractedQuestion, DocumentSection } from '@/types/gemini';
+import { EnhancedDocumentSection, ContentType } from '@/types/editor';
+import { SectionEditor } from './editor/SectionEditor';
 import { ContentEditor } from './ContentEditor';
 import { DirectPDFViewer } from './DirectPDFViewer';
+import { contentFormatter } from './editor/ContentFormatter';
 
 interface VerificationUIProps {
   file: File;
@@ -23,10 +28,16 @@ export function VerificationUI({
   isProcessing = false
 }: VerificationUIProps) {
   const [editedResult, setEditedResult] = useState<GeminiAnalysisResponse>(analysisResult);
-  // We no longer need the activeTab state as it's handled by the ContentEditor component
   const [pdfUrl, setPdfUrl] = useState<string>('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'enhanced' | 'legacy'>('enhanced');
+
+  // Enhanced sections with editor-specific properties
+  const [enhancedSections, setEnhancedSections] = useState<EnhancedDocumentSection[]>(() => 
+    convertToEnhancedSections(analysisResult.documentStructure.sections)
+  );
 
   // Create PDF preview URL
   useEffect(() => {
@@ -52,7 +63,7 @@ export function VerificationUI({
       errors.push('Document title is required');
     }
     
-    if (editedResult.extractedQuestions.length === 0 && editedResult.documentStructure.sections.length === 0) {
+    if (editedResult.extractedQuestions.length === 0 && enhancedSections.length === 0) {
       errors.push('At least one question or content section is required');
     }
 
@@ -65,18 +76,63 @@ export function VerificationUI({
       }
     });
 
-    setValidationErrors(errors);
-  }, [editedResult]);
+    // Validate enhanced sections
+    enhancedSections.forEach((section, index) => {
+      if (section.validationErrors && section.validationErrors.length > 0) {
+        errors.push(`Section ${index + 1}: ${section.validationErrors.join(', ')}`);
+      }
+    });
 
-  const updateQuestion = useCallback((questionId: string, updatedQuestion: ExtractedQuestion) => {
+    setValidationErrors(errors);
+  }, [editedResult, enhancedSections]);
+
+  // Convert regular sections to enhanced sections
+  function convertToEnhancedSections(sections: DocumentSection[]): EnhancedDocumentSection[] {
+    return sections.map(section => ({
+      ...section,
+      isEditing: false,
+      isDirty: false,
+      lastModified: Date.now(),
+      wordCount: contentFormatter.getWordCount(section.content),
+      characterCount: contentFormatter.getCharacterCount(section.content),
+      validationErrors: [],
+      isValid: true,
+      // Auto-detect content type
+      type: contentFormatter.detectContentType(section.content) as ContentType
+    }));
+  }
+
+  // Enhanced section update handler
+  const updateEnhancedSection = useCallback((sectionId: string, updatedSection: EnhancedDocumentSection) => {
+    setEnhancedSections(prev => 
+      prev.map(s => s.id === sectionId ? updatedSection : s)
+    );
+
+    // Also update the main analysis result
     setEditedResult(prev => ({
       ...prev,
-      extractedQuestions: prev.extractedQuestions.map(q =>
-        q.id === questionId ? updatedQuestion : q
-      )
+      documentStructure: {
+        ...prev.documentStructure,
+        sections: enhancedSections.map(s => 
+          s.id === sectionId ? {
+            id: updatedSection.id,
+            type: updatedSection.type,
+            content: updatedSection.content,
+            position: updatedSection.position,
+            confidence: updatedSection.confidence
+          } : {
+            id: s.id,
+            type: s.type,
+            content: s.content,
+            position: s.position,
+            confidence: s.confidence
+          }
+        )
+      }
     }));
-  }, []);
+  }, [enhancedSections]);
 
+  // Legacy section update handler (for backward compatibility)
   const updateSection = useCallback((sectionId: string, updatedSection: DocumentSection) => {
     setEditedResult(prev => ({
       ...prev,
@@ -86,6 +142,15 @@ export function VerificationUI({
           s.id === sectionId ? updatedSection : s
         )
       }
+    }));
+  }, []);
+
+  const updateQuestion = useCallback((questionId: string, updatedQuestion: ExtractedQuestion) => {
+    setEditedResult(prev => ({
+      ...prev,
+      extractedQuestions: prev.extractedQuestions.map(q =>
+        q.id === questionId ? updatedQuestion : q
+      )
     }));
   }, []);
 
@@ -130,6 +195,33 @@ export function VerificationUI({
     }));
   }, []);
 
+  const addNewSection = useCallback(() => {
+    const newSection: EnhancedDocumentSection = {
+      id: `section_${Date.now()}`,
+      type: 'text',
+      content: '',
+      position: { page: 1, x: 0, y: 0, width: 100, height: 20 },
+      confidence: 1.0,
+      isEditing: true,
+      isDirty: false,
+      lastModified: Date.now(),
+      wordCount: 0,
+      characterCount: 0,
+      validationErrors: [],
+      isValid: true
+    };
+
+    setEnhancedSections(prev => [...prev, newSection]);
+    setActiveSection(newSection.id);
+  }, []);
+
+  const removeSection = useCallback((sectionId: string) => {
+    setEnhancedSections(prev => prev.filter(s => s.id !== sectionId));
+    if (activeSection === sectionId) {
+      setActiveSection(null);
+    }
+  }, [activeSection]);
+
   const handleApprove = useCallback(() => {
     if (validationErrors.length > 0) {
       alert('Please fix validation errors before proceeding');
@@ -159,24 +251,28 @@ export function VerificationUI({
             <p className="text-sm text-gray-600 mt-1">
               AI extracted content below. Review and edit before generating branded PDF.
             </p>
-            {hasUnsavedChanges && (
-              <p className="text-xs text-amber-600 mt-1">● Unsaved changes</p>
-            )}
           </div>
-          <div className="flex items-center gap-2">
-            <AIConfidenceBadge confidence={analysisResult.processingInfo.confidence} />
-            {validationErrors.length > 0 && (
-              <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded">
-                {validationErrors.length} error{validationErrors.length > 1 ? 's' : ''}
-              </span>
-            )}
+          
+          {/* View Mode Toggle */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600">Editor Mode:</label>
+              <select
+                value={viewMode}
+                onChange={(e) => setViewMode(e.target.value as 'enhanced' | 'legacy')}
+                className="px-3 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="enhanced">Enhanced Editor</option>
+                <option value="legacy">Legacy Editor</option>
+              </select>
+            </div>
           </div>
         </div>
-
+        
         {/* Validation Errors */}
         {validationErrors.length > 0 && (
-          <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-            <h4 className="text-sm font-medium text-red-900 mb-2">Please fix these issues:</h4>
+          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
+            <h4 className="text-sm font-medium text-red-800 mb-2">Please fix these issues:</h4>
             <ul className="text-sm text-red-700 space-y-1">
               {validationErrors.map((error, index) => (
                 <li key={index}>• {error}</li>
@@ -186,47 +282,185 @@ export function VerificationUI({
         )}
       </div>
 
-      {/* Main Content - Split Screen with enhanced components */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 h-[700px] gap-4">
-        {/* Left Panel - Enhanced PDF Viewer */}
-        <div className="border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm">
-          <div className="p-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-medium text-gray-900">Original Document</h3>
-              <p className="text-xs text-gray-600 mt-0.5">{file.name}</p>
-            </div>
-          </div>
-          
-          {/* PDF Viewer Component */}
-          <div className="h-[calc(100%-48px)]">
+      {/* Main Content */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6">
+        {/* PDF Viewer */}
+        <div className="space-y-4">
+          <h3 className="text-lg font-medium text-gray-900">Original Document</h3>
+          <div className="border border-gray-200 rounded-lg overflow-hidden">
             <DirectPDFViewer file={file} dataUrl={pdfUrl} />
           </div>
         </div>
 
-        {/* Right Panel - Enhanced Content Editor */}
-        <div className="h-full">
-          <ContentEditor 
-            title={editedResult.extractedContent.title}
-            subtitle={editedResult.extractedContent.subtitle || ''}
-            subject={editedResult.documentStructure.subject || ''}
-            questions={editedResult.extractedQuestions}
-            sections={editedResult.documentStructure.sections}
-            onUpdateTitle={(title) => updateDocumentInfo('title', title)}
-            onUpdateSubtitle={(subtitle) => updateDocumentInfo('subtitle', subtitle)}
-            onUpdateSubject={(subject) => updateDocumentInfo('subject', subject)}
-            onUpdateQuestion={updateQuestion}
-            onAddQuestion={addNewQuestion}
-            onRemoveQuestion={removeQuestion}
-            onUpdateSection={updateSection}
-          />
+        {/* Content Editor */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-medium text-gray-900">
+              {viewMode === 'enhanced' ? 'Enhanced Content Editor' : 'Legacy Content Editor'}
+            </h3>
+            
+            {viewMode === 'enhanced' && (
+              <button
+                onClick={addNewSection}
+                className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Add Section
+              </button>
+            )}
+          </div>
+
+          {viewMode === 'enhanced' ? (
+            // Enhanced Editor Mode
+            <div className="space-y-4">
+              {/* Document Info */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <h4 className="text-sm font-medium text-gray-900 mb-3">Document Information</h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Title</label>
+                    <input
+                      type="text"
+                      value={editedResult.extractedContent.title}
+                      onChange={(e) => updateDocumentInfo('title', e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Subject</label>
+                    <input
+                      type="text"
+                      value={editedResult.documentStructure.subject}
+                      onChange={(e) => updateDocumentInfo('subject', e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Enhanced Sections */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-medium text-gray-900">
+                  Content Sections ({enhancedSections.length})
+                </h4>
+                
+                {enhancedSections.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500 border border-gray-200 rounded-lg">
+                    <div className="text-2xl mb-2">📄</div>
+                    <p className="text-sm">No sections detected</p>
+                    <button
+                      onClick={addNewSection}
+                      className="mt-3 px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                    >
+                      Add First Section
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4 max-h-[600px] overflow-y-auto">
+                    {enhancedSections.map((section) => (
+                      <SectionEditor
+                        key={section.id}
+                        section={section}
+                        onUpdate={(updated) => updateEnhancedSection(section.id, updated)}
+                        onDelete={() => removeSection(section.id)}
+                        isActive={activeSection === section.id}
+                        onActivate={() => setActiveSection(section.id)}
+                        config={{
+                          autoSave: {
+                            enabled: true,
+                            interval: 3000,
+                            maxRetries: 3
+                          },
+                          toolbar: {
+                            enabled: true,
+                            actions: ['bold', 'italic', 'heading1', 'heading2', 'bulletList', 'numberedList', 'undo', 'redo', 'save', 'preview'],
+                            compact: false
+                          },
+                          validation: {
+                            rules: [
+                              {
+                                id: 'required',
+                                name: 'Required Content',
+                                type: 'required',
+                                message: 'Content cannot be empty'
+                              },
+                              {
+                                id: 'maxLength',
+                                name: 'Maximum Length',
+                                type: 'maxLength',
+                                value: 5000,
+                                message: 'Content must be less than 5000 characters'
+                              }
+                            ],
+                            realTime: true
+                          },
+                          features: {
+                            dragDrop: true,
+                            autoFormat: true,
+                            spellCheck: true,
+                            wordCount: true
+                          }
+                        }}
+                        showStats={true}
+                        autoFocus={section.id === activeSection}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Questions Section */}
+              {editedResult.extractedQuestions.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-medium text-gray-900">
+                      Questions ({editedResult.extractedQuestions.length})
+                    </h4>
+                    <button
+                      onClick={addNewQuestion}
+                      className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+                    >
+                      Add Question
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {editedResult.extractedQuestions.map((question) => (
+                      <QuestionEditor
+                        key={question.id}
+                        question={question}
+                        onUpdate={(updated) => updateQuestion(question.id, updated)}
+                        onRemove={() => removeQuestion(question.id)}
+                        canRemove={editedResult.extractedQuestions.length > 1}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            // Legacy Editor Mode
+            <ContentEditor
+              analysisResult={editedResult}
+              onUpdateQuestion={updateQuestion}
+              onUpdateSection={updateSection}
+              onUpdateDocumentInfo={updateDocumentInfo}
+              onAddQuestion={addNewQuestion}
+              onRemoveQuestion={removeQuestion}
+            />
+          )}
         </div>
       </div>
 
-      {/* Footer Actions */}
-      <div className="border-t border-gray-200 bg-gray-50 p-6">
+      {/* Action Buttons */}
+      <div className="bg-gray-50 border-t border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-600">
-            Review the extracted content and make any necessary corrections before proceeding.
+            {hasUnsavedChanges && (
+              <span className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                Unsaved changes
+              </span>
+            )}
           </div>
           <div className="flex gap-3">
             <button
@@ -257,438 +491,7 @@ export function VerificationUI({
   );
 }
 
-// ENHANCED SectionEditor Component with proper content handling
-function SectionEditor({ 
-  section, 
-  onUpdate 
-}: {
-  section: DocumentSection;
-  onUpdate: (section: DocumentSection) => void;
-}) {
-  const [displayContent, setDisplayContent] = useState(section.content);
-  const [isJSONContent, setIsJSONContent] = useState(false);
-  const [contentType, setContentType] = useState<'clean' | 'json' | 'markdown'>('clean');
-
-  useEffect(() => {
-    // NEW: Detect and parse different content types
-    const processed = processContentForDisplay(section.content);
-    setDisplayContent(processed.content);
-    setIsJSONContent(processed.isJSON);
-    setContentType(processed.type);
-  }, [section.content]);
-
-  const handleContentChange = (value: string) => {
-    setDisplayContent(value);
-    onUpdate({ ...section, content: value });
-  };
-
-  // NEW: Calculate dynamic height based on content
-  const calculateRows = (content: string) => {
-    const lines = content.split('\n').length;
-    const minRows = 3;
-    const maxRows = 20;
-    const calculatedRows = Math.max(minRows, Math.min(lines + 2, maxRows));
-    return calculatedRows;
-  };
-
-  const updateField = (field: keyof DocumentSection, value: any) => {
-    onUpdate({ ...section, [field]: value });
-  };
-
-  return (
-    <div className="border border-gray-200 rounded-lg p-4 bg-white">
-      <div className="flex items-center gap-2 mb-3">
-        <select
-          value={section.type}
-          onChange={(e) => updateField('type', e.target.value)}
-          className="px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-        >
-          <option value="header">Header</option>
-          <option value="question">Question</option>
-          <option value="answer">Answer</option>
-          <option value="instruction">Instruction</option>
-          <option value="content">Content</option>
-        </select>
-        <span className="text-xs text-gray-500">
-          Page {section.position.page}, Order {section.position.order}
-        </span>
-        {/* NEW: Content type indicators */}
-        {isJSONContent && (
-          <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
-            Parsed from AI
-          </span>
-        )}
-        {contentType === 'markdown' && (
-          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-            Markdown
-          </span>
-        )}
-      </div>
-
-      {/* Enhanced textarea with dynamic sizing and better UX */}
-      <div className="space-y-2">
-        <textarea
-          value={displayContent}
-          onChange={(e) => handleContentChange(e.target.value)}
-          rows={calculateRows(displayContent)}
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 resize-y min-h-[100px] font-mono leading-relaxed"
-          placeholder="Section content..."
-          style={{ 
-            minHeight: '80px',
-            lineHeight: '1.5'
-          }}
-        />
-        
-        {/* NEW: Content metadata and actions */}
-        <div className="flex items-center justify-between text-xs text-gray-500">
-          <div className="flex items-center gap-4">
-            <span>{displayContent.length} characters</span>
-            <span>{displayContent.split('\n').length} lines</span>
-            {isJSONContent && (
-              <button
-                onClick={() => {
-                  // Re-process content to try to extract more
-                  const reprocessed = processContentForDisplay(section.content, true);
-                  setDisplayContent(reprocessed.content);
-                }}
-                className="text-blue-600 hover:text-blue-700 underline"
-              >
-                Re-extract content
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {contentType !== 'clean' && (
-              <span className="text-amber-600">• Modified from original</span>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// NEW: Enhanced content processing function
-function processContentForDisplay(content: string, forceReprocess = false): {
-  content: string;
-  isJSON: boolean;
-  type: 'clean' | 'json' | 'markdown';
-} {
-  if (!content || typeof content !== 'string') {
-    return { content: '', isJSON: false, type: 'clean' };
-  }
-
-  // Check if content is JSON-wrapped
-  if (content.includes('```json') || content.trim().startsWith('{')) {
-    try {
-      const extracted = extractActualContentFromJSON(content);
-      return {
-        content: extracted,
-        isJSON: true,
-        type: 'json'
-      };
-    } catch (error) {
-      console.warn('Failed to extract JSON content:', error);
-      // Return cleaned version if JSON parsing fails
-      return {
-        content: cleanRawContent(content),
-        isJSON: true,
-        type: 'json'
-      };
-    }
-  }
-
-  // Check if content has markdown
-  if (content.includes('```') || content.includes('**') || content.includes('##')) {
-    return {
-      content: cleanMarkdownContent(content),
-      isJSON: false,
-      type: 'markdown'
-    };
-  }
-
-  // Clean content
-  return {
-    content: cleanRawContent(content),
-    isJSON: false,
-    type: 'clean'
-  };
-}
-
-// NEW: Extract actual content from JSON strings (enhanced)
-function extractActualContentFromJSON(jsonContent: string): string {
-  try {
-    // Remove markdown code blocks
-    let cleaned = jsonContent.replace(/```json\s*\n?/g, '').replace(/\n?\s*```/g, '');
-    
-    // If it's a JSON string, parse and extract content
-    if (cleaned.trim().startsWith('{')) {
-      const parsed = JSON.parse(cleaned);
-      
-      // Multiple extraction strategies
-      const extractions = [];
-      
-      // Strategy 1: Extract from nested documentStructure
-      if (parsed.documentStructure?.sections) {
-        const sectionContent = parsed.documentStructure.sections
-          .map((s: any) => s.content || s.title || '')
-          .filter((c: string) => c.trim())
-          .join('\n\n');
-        if (sectionContent) extractions.push(sectionContent);
-      }
-      
-      // Strategy 2: Extract from extractedContent
-      if (parsed.extractedContent?.rawText) {
-        extractions.push(parsed.extractedContent.rawText);
-      }
-      
-      // Strategy 3: Extract from top-level sections
-      if (parsed.sections) {
-        const topLevelContent = parsed.sections
-          .map((s: any) => s.content || '')
-          .filter((c: string) => c.trim())
-          .join('\n\n');
-        if (topLevelContent) extractions.push(topLevelContent);
-      }
-      
-      // Strategy 4: Extract any text values
-      const allTextValues = extractAllTextValues(parsed);
-      if (allTextValues) extractions.push(allTextValues);
-      
-      // Return the longest extraction
-      if (extractions.length > 0) {
-        return extractions.reduce((longest, current) => 
-          current.length > longest.length ? current : longest
-        );
-      }
-    }
-    
-    return cleanRawContent(cleaned);
-  } catch (error) {
-    console.warn('JSON extraction failed:', error);
-    return cleanRawContent(jsonContent);
-  }
-}
-
-// NEW: Extract all text values from an object recursively
-function extractAllTextValues(obj: any, maxDepth = 3, currentDepth = 0): string {
-  if (currentDepth >= maxDepth) return '';
-  
-  const textValues: string[] = [];
-  
-  for (const [key, value] of Object.entries(obj)) {
-    if (typeof value === 'string' && value.length > 10 && !key.includes('id') && !key.includes('type')) {
-      textValues.push(value);
-    } else if (typeof value === 'object' && value !== null) {
-      const nestedText = extractAllTextValues(value, maxDepth, currentDepth + 1);
-      if (nestedText) textValues.push(nestedText);
-    }
-  }
-  
-  return textValues.join('\n\n');
-}
-
-// NEW: Clean markdown content
-function cleanMarkdownContent(content: string): string {
-  return content
-    .replace(/```[\w]*\n?/g, '')
-    .replace(/\n?```/g, '')
-    .replace(/#{1,6}\s*/g, '')
-    .replace(/\*\*(.*?)\*\*/g, '$1')
-    .replace(/\*(.*?)\*/g, '$1')
-    .trim();
-}
-
-// NEW: Clean raw content
-function cleanRawContent(content: string): string {
-  return content
-    .replace(/\\n/g, '\n')
-    .replace(/\\"/g, '"')
-    .replace(/\\'/g, "'")
-    .replace(/\s+/g, ' ')
-    .replace(/\n\s+/g, '\n')
-    .trim();
-}
-
-// Overview Tab Component
-function OverviewTab({
-  editedResult,
-  analysisResult,
-  onUpdateDocumentInfo
-}: {
-  editedResult: GeminiAnalysisResponse;
-  analysisResult: GeminiAnalysisResponse;
-  onUpdateDocumentInfo: (field: string, value: string) => void;
-}) {
-  return (
-    <div className="space-y-6">
-      <div>
-        <label className="block text-sm font-medium text-gray-900 mb-2">
-          Document Title
-        </label>
-        <input
-          type="text"
-          value={editedResult.extractedContent.title}
-          onChange={(e) => onUpdateDocumentInfo('title', e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="Enter document title..."
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-900 mb-2">
-          Subject
-        </label>
-        <input
-          type="text"
-          value={editedResult.documentStructure.subject || ''}
-          onChange={(e) => onUpdateDocumentInfo('subject', e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="Enter subject or topic..."
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-900 mb-2">
-          Instructions
-        </label>
-        <textarea
-          value={editedResult.extractedContent.instructions?.join('\n') || ''}
-          onChange={(e) => {
-            const instructions = e.target.value.split('\n').filter(line => line.trim());
-            onUpdateDocumentInfo('instructions', instructions.join('\n'));
-          }}
-          rows={3}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="Enter instructions (one per line)..."
-        />
-      </div>
-
-      {/* Analysis Summary */}
-      <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-        <h4 className="text-sm font-medium text-blue-900 mb-3">AI Analysis Summary</h4>
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <span className="text-blue-700">Questions Detected:</span>
-            <span className="ml-2 font-medium">{editedResult.extractedQuestions.length}</span>
-          </div>
-          <div>
-            <span className="text-blue-700">Sections Found:</span>
-            <span className="ml-2 font-medium">{editedResult.documentStructure.sections.length}</span>
-          </div>
-          <div>
-            <span className="text-blue-700">Pages:</span>
-            <span className="ml-2 font-medium">{editedResult.documentStructure.metadata.totalPages}</span>
-          </div>
-          <div>
-            <span className="text-blue-700">AI Model:</span>
-            <span className="ml-2 font-medium">{analysisResult.processingInfo.model}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Questions Tab Component
-function QuestionsTab({
-  questions,
-  onUpdateQuestion,
-  onAddQuestion,
-  onRemoveQuestion
-}: {
-  questions: ExtractedQuestion[];
-  onUpdateQuestion: (questionId: string, question: ExtractedQuestion) => void;
-  onAddQuestion: () => void;
-  onRemoveQuestion: (questionId: string) => void;
-}) {
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-gray-900">
-          Extracted Questions ({questions.length})
-        </h3>
-        <div className="flex items-center gap-3">
-          <div className="text-xs text-gray-500">
-            {questions.length > 0 ? "Scroll to view all questions" : ""}
-          </div>
-          <button
-            onClick={onAddQuestion}
-            className="btn-secondary text-xs"
-          >
-            + Add Question
-          </button>
-        </div>
-      </div>
-
-      {questions.length === 0 ? (
-        <div className="text-center py-8 text-gray-500">
-          <div className="text-2xl mb-2">❓</div>
-          <p className="text-sm">No questions detected</p>
-          <button
-            onClick={onAddQuestion}
-            className="btn-primary text-sm mt-3"
-          >
-            Add First Question
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 pb-4">
-          {questions.map((question) => (
-            <QuestionEditor
-              key={question.id}
-              question={question}
-              onUpdate={(updated) => onUpdateQuestion(question.id, updated)}
-              onRemove={() => onRemoveQuestion(question.id)}
-              canRemove={questions.length > 1}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Sections Tab Component
-function SectionsTab({
-  sections,
-  onUpdateSection
-}: {
-  sections: DocumentSection[];
-  onUpdateSection: (sectionId: string, section: DocumentSection) => void;
-}) {
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-gray-900">
-          Document Sections ({sections.length})
-        </h3>
-        <div className="text-xs text-gray-500">
-          Scroll to view all sections
-        </div>
-      </div>
-
-      {sections.length === 0 ? (
-        <div className="text-center py-8 text-gray-500">
-          <div className="text-2xl mb-2">📄</div>
-          <p className="text-sm">No sections detected</p>
-        </div>
-      ) : (
-        <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 pb-4">
-          {sections.map((section) => (
-            <SectionEditor
-              key={section.id}
-              section={section}
-              onUpdate={(updated) => onUpdateSection(section.id, updated)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Question Editor Component
+// Legacy Question Editor Component (for backward compatibility)
 function QuestionEditor({ 
   question, 
   onUpdate, 
@@ -746,75 +549,94 @@ function QuestionEditor({
         {canRemove && (
           <button
             onClick={onRemove}
-            className="text-red-600 hover:text-red-700 text-sm p-1"
+            className="p-1 text-red-600 hover:text-red-700 hover:bg-red-50 rounded"
             title="Remove question"
           >
-            ✕
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         )}
       </div>
 
-      <textarea
-        value={question.content}
-        onChange={(e) => updateField('content', e.target.value)}
-        rows={Math.max(2, Math.min(question.content.split('\n').length + 1, 8))}
-        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 resize-y"
-        placeholder="Enter question content..."
-      />
-
-      {question.type === 'multiple_choice' && (
-        <div className="mt-3">
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-gray-700">Answer Options</label>
-            <button
-              onClick={addOption}
-              className="text-xs text-blue-600 hover:text-blue-700"
-            >
-              + Add Option
-            </button>
-          </div>
-          <div className="space-y-2">
-            {(question.options || []).map((option, index) => (
-              <div key={index} className="flex items-center gap-2">
-                <span className="text-sm text-gray-500 w-6">
-                  {String.fromCharCode(65 + index)}.
-                </span>
-                <input
-                  type="text"
-                  value={option}
-                  onChange={(e) => updateOption(index, e.target.value)}
-                  className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  placeholder={`Option ${String.fromCharCode(65 + index)}`}
-                />
-                {question.options && question.options.length > 2 && (
-                  <button
-                    onClick={() => removeOption(index)}
-                    className="text-red-600 hover:text-red-700 text-sm w-6"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
+      <div className="space-y-3">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Question Content
+          </label>
+          <textarea
+            value={question.content}
+            onChange={(e) => updateField('content', e.target.value)}
+            rows={3}
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+            placeholder="Enter question text..."
+          />
         </div>
-      )}
+
+        {question.type === 'multiple_choice' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Answer Options
+            </label>
+            <div className="space-y-2">
+              {(question.options || []).map((option, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-600 w-6">
+                    {String.fromCharCode(65 + index)}:
+                  </span>
+                  <input
+                    type="text"
+                    value={option}
+                    onChange={(e) => updateOption(index, e.target.value)}
+                    className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder={`Option ${String.fromCharCode(65 + index)}`}
+                  />
+                  {(question.options || []).length > 2 && (
+                    <button
+                      onClick={() => removeOption(index)}
+                      className="p-1 text-red-600 hover:text-red-700"
+                      title="Remove option"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                onClick={addOption}
+                className="mt-2 px-3 py-1.5 text-xs bg-gray-50 text-gray-600 rounded-md hover:bg-gray-100 transition-colors flex items-center gap-1"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+                </svg>
+                Add Option
+              </button>
+            </div>
+          </div>
+        )}
+
+        {question.type === 'multiple_choice' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Correct Answer
+            </label>
+            <select
+              value={question.correctAnswer || ''}
+              onChange={(e) => updateField('correctAnswer', e.target.value)}
+              className="px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="">Select correct answer...</option>
+              {(question.options || []).map((_, index) => (
+                <option key={index} value={String.fromCharCode(65 + index)}>
+                  Option {String.fromCharCode(65 + index)}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
     </div>
-  );
-}
-
-// AI Confidence Badge Component
-function AIConfidenceBadge({ confidence }: { confidence: number }) {
-  const percentage = Math.round(confidence * 100);
-  const color = percentage >= 90 
-    ? 'bg-green-100 text-green-800' 
-    : percentage >= 70 
-    ? 'bg-yellow-100 text-yellow-800' 
-    : 'bg-red-100 text-red-800';
-
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${color}`}>
-      AI: {percentage}%
-    </span>
   );
 }

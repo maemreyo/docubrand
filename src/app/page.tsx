@@ -10,6 +10,7 @@ import { useBrandKit } from '@/lib/brand-kit';
 import { useDocuBrandAPI } from '@/lib/api-client';
 import { ProcessingStatus, PDFProcessingResult } from '@/types';
 import { GeminiAnalysisResponse } from '@/types/gemini';
+import { SectionEditorDemo } from '@/components/demo/SectionEditorDemo';
 
 type WorkflowStep = 'upload' | 'processing' | 'verification' | 'generating' | 'complete';
 
@@ -176,6 +177,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* <SectionEditorDemo /> */}
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
