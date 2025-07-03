@@ -1,685 +1,640 @@
-// UPDATED: 2025-07-03 - Added support for edited verification results
+// UPDATED: 2025-07-03 - Enhanced with Gemini AI integration for content extraction
 
-import { PDFDocument, PDFPage, rgb, StandardFonts } from 'pdf-lib';
-import { BrandKit, QuizElement, PDFProcessingResult } from '@/types';
-import { GeminiAnalysisResponse, DocumentSection } from '@/types/gemini';
-import { GeminiService } from './gemini-service';
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { 
+  GeminiAnalysisRequest, 
+  GeminiAnalysisResponse, 
+  ProcessingResult, 
+  AnalysisStatus,
+  DEFAULT_ANALYSIS_OPTIONS 
+} from '@/types/gemini';
+import { getGeminiClient } from './gemini-client';
+import { BrandKit } from '@/types';
 
+/**
+ * PDF processing configuration
+ */
+interface PDFProcessorConfig {
+  maxFileSize?: number; // in bytes
+  supportedTypes?: string[];
+  geminiConfig?: {
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+  };
+  enableFallback?: boolean;
+}
+
+/**
+ * PDF processing result
+ */
+interface PDFProcessingResult {
+  success: boolean;
+  analysisResult?: GeminiAnalysisResponse;
+  brandedPdf?: Uint8Array;
+  processingTime: number;
+  warnings: string[];
+  errors: string[];
+  metadata: {
+    originalFileSize: number;
+    pages: number;
+    extractedContent: boolean;
+    brandingApplied: boolean;
+  };
+}
+
+/**
+ * Enhanced PDF processor with AI-powered content extraction
+ */
 export class PDFProcessor {
-  private pdfDoc: PDFDocument | null = null;
-  private originalBytes: Uint8Array | null = null;
-  private elements: QuizElement[] = [];
-  private analysisResult: GeminiAnalysisResponse | null = null;
-
-  /**
-   * Load PDF file and extract content using Gemini AI
-   */
-  async loadPDF(file: File): Promise<void> {
-    try {
-      console.log('📄 Loading PDF file:', file.name);
-      
-      // Convert File to ArrayBuffer
-      const arrayBuffer = await file.arrayBuffer();
-      this.originalBytes = new Uint8Array(arrayBuffer);
-      
-      // Load PDF with pdf-lib for processing
-      this.pdfDoc = await PDFDocument.load(this.originalBytes);
-      
-      console.log(`📋 PDF loaded: ${this.pdfDoc.getPageCount()} pages`);
-      
-      // Extract content using Gemini AI
-      await this.extractContentWithGemini(file);
-      
-    } catch (error) {
-      console.error('❌ Failed to load PDF:', error);
-      throw new Error(`Could not load PDF file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  private config: PDFProcessorConfig;
+  private defaultConfig: PDFProcessorConfig = {
+    maxFileSize: 20 * 1024 * 1024, // 20MB
+    supportedTypes: ['application/pdf'],
+    enableFallback: true,
+    geminiConfig: {
+      model: 'gemini-2.0-flash',
+      temperature: 0.1,
+      maxTokens: 8192
     }
+  };
+
+  constructor(config: Partial<PDFProcessorConfig> = {}) {
+    this.config = { ...this.defaultConfig, ...config };
   }
 
   /**
-   * Load PDF with pre-analyzed content (from verification step)
+   * Process PDF file: extract content and apply branding
    */
-  async loadPDFWithAnalysis(file: File, analysisResult: GeminiAnalysisResponse): Promise<void> {
+  async processPDF(
+    file: File,
+    brandKit: BrandKit,
+    options: {
+      documentType?: string;
+      language?: string;
+      extractContent?: boolean;
+      applyBranding?: boolean;
+      onProgress?: (status: AnalysisStatus) => void;
+    } = {}
+  ): Promise<PDFProcessingResult> {
+    const startTime = Date.now();
+    const warnings: string[] = [];
+    const errors: string[] = [];
+
     try {
-      console.log('📄 Loading PDF with pre-analyzed content:', file.name);
+      console.log('📄 Starting PDF processing...');
       
-      // Convert File to ArrayBuffer
-      const arrayBuffer = await file.arrayBuffer();
-      this.originalBytes = new Uint8Array(arrayBuffer);
+      // Validate input
+      await this.validateFile(file);
       
-      // Load PDF with pdf-lib for processing
-      this.pdfDoc = await PDFDocument.load(this.originalBytes);
-      
-      // Use provided analysis result
-      this.analysisResult = analysisResult;
-      
-      // Convert analysis to elements
-      this.convertGeminiToElements();
-      
-      console.log('✅ PDF loaded with verified content:', {
-        questionsFound: this.analysisResult.extractedQuestions.length,
-        sectionsFound: this.analysisResult.documentStructure.sections.length,
-        confidence: this.analysisResult.processingInfo.confidence
+      const {
+        documentType = 'general' as any,
+        language = 'en',
+        extractContent = true,
+        applyBranding = true,
+        onProgress
+      } = options;
+
+      // Update progress
+      onProgress?.({
+        status: 'processing',
+        progress: 5,
+        currentStep: 'Validating PDF file...'
       });
+
+      // Convert file to base64 for AI analysis
+      let analysisResult: GeminiAnalysisResponse | undefined;
       
+      if (extractContent) {
+        onProgress?.({
+          status: 'processing',
+          progress: 10,
+          currentStep: 'Converting PDF for analysis...'
+        });
+
+        const pdfBase64 = await this.convertToBase64(file);
+        
+        onProgress?.({
+          status: 'analyzing',
+          progress: 20,
+          currentStep: 'Analyzing content with AI...'
+        });
+
+        // Analyze with Gemini AI
+        const analysisRequest: GeminiAnalysisRequest = {
+          pdfBase64,
+          documentType,
+          analysisOptions: {
+            ...DEFAULT_ANALYSIS_OPTIONS,
+            detectLanguage: true,
+            analyzeDifficulty: true
+          },
+          userContext: {
+            role: 'teacher',
+            language,
+            preferences: {
+              detailLevel: 'standard',
+              focusAreas: ['content', 'questions']
+            }
+          }
+        };
+
+        const processingResult = await this.analyzeWithGemini(analysisRequest, onProgress);
+        analysisResult = processingResult;
+
+        if (processingResult.warnings) {
+          warnings.push(...processingResult.warnings);
+        }
+        if (processingResult.errors) {
+          errors.push(...processingResult.errors.map(e => e.message));
+        }
+      }
+
+      // Apply branding if requested
+      let brandedPdf: Uint8Array | undefined;
+      
+      if (applyBranding) {
+        onProgress?.({
+          status: 'processing',
+          progress: 80,
+          currentStep: 'Applying brand styling...'
+        });
+
+        brandedPdf = await this.applyBranding(file, brandKit, analysisResult);
+      }
+
+      // Get PDF metadata
+      const metadata = await this.extractMetadata(file);
+
+      onProgress?.({
+        status: 'complete',
+        progress: 100,
+        currentStep: 'Processing completed successfully'
+      });
+
+      const processingTime = Date.now() - startTime;
+      console.log(`✅ PDF processing completed in ${processingTime}ms`);
+
+      return {
+        success: true,
+        analysisResult,
+        brandedPdf,
+        processingTime,
+        warnings,
+        errors,
+        metadata: {
+          originalFileSize: file.size,
+          pages: metadata.pages,
+          extractedContent: !!analysisResult,
+          brandingApplied: !!brandedPdf
+        }
+      };
+
     } catch (error) {
-      console.error('❌ Failed to load PDF with analysis:', error);
-      throw new Error(`Could not load PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const processingTime = Date.now() - startTime;
+      console.error('❌ PDF processing failed:', error);
+
+      const errorMessage = error instanceof Error ? error.message : 'Unknown processing error';
+      errors.push(errorMessage);
+
+      return {
+        success: false,
+        processingTime,
+        warnings,
+        errors,
+        metadata: {
+          originalFileSize: file.size,
+          pages: 0,
+          extractedContent: false,
+          brandingApplied: false
+        }
+      };
     }
   }
 
   /**
-   * Extract content using Gemini AI API
+   * Extract content only (without branding)
    */
-  private async extractContentWithGemini(file: File): Promise<void> {
+  async extractContent(
+    file: File,
+    options: {
+      documentType?: string;
+      language?: string;
+      onProgress?: (status: AnalysisStatus) => void;
+    } = {}
+  ): Promise<ProcessingResult> {
+    console.log('📄 Extracting content from PDF...');
+
     try {
-      console.log('🤖 Starting Gemini AI analysis...');
-      
-      // Convert file to base64
-      const base64Data = await GeminiService.fileToBase64(file);
-      
       // Validate file
-      const validation = GeminiService.validatePDFFile(file);
-      if (!validation.valid) {
-        throw new Error(validation.error);
-      }
+      await this.validateFile(file);
 
-      // Call our API endpoint
-      const response = await fetch('/api/analyze-pdf', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          pdfBase64: base64Data,
-          documentType: this.detectDocumentType(file.name),
-          language: 'en', // Default for MVP
-          fileName: file.name
-        })
-      });
+      // Convert to base64
+      const pdfBase64 = await this.convertToBase64(file);
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `API request failed: ${response.status}`);
-      }
+      // Create analysis request
+      const analysisRequest: GeminiAnalysisRequest = {
+        pdfBase64,
+        documentType: options.documentType || 'general' as any,
+        analysisOptions: DEFAULT_ANALYSIS_OPTIONS,
+        userContext: {
+          role: 'teacher',
+          language: options.language || 'en',
+          preferences: {
+            detailLevel: 'standard',
+            focusAreas: ['content', 'questions']
+          }
+        }
+      };
 
-      const apiResult = await response.json();
-      if (!apiResult.success) {
-        throw new Error(apiResult.error || 'Analysis failed');
-      }
+      // Analyze with Gemini
+      return await this.analyzeWithGemini(analysisRequest, options.onProgress);
 
-      this.analysisResult = apiResult.data;
+    } catch (error) {
+      console.error('❌ Content extraction failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Apply branding only (without content extraction)
+   */
+  async applyBrandingOnly(
+    file: File,
+    brandKit: BrandKit,
+    analysisResult?: GeminiAnalysisResponse
+  ): Promise<Uint8Array> {
+    console.log('🎨 Applying branding to PDF...');
+
+    try {
+      await this.validateFile(file);
+      return await this.applyBranding(file, brandKit, analysisResult);
+    } catch (error) {
+      console.error('❌ Branding application failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Validate PDF file
+   */
+  private async validateFile(file: File): Promise<void> {
+    // Check file type
+    if (!this.config.supportedTypes?.includes(file.type)) {
+      throw new Error(`Unsupported file type: ${file.type}. Only PDF files are supported.`);
+    }
+
+    // Check file size
+    if (file.size > (this.config.maxFileSize || 20 * 1024 * 1024)) {
+      const maxSizeMB = Math.round((this.config.maxFileSize || 20 * 1024 * 1024) / 1024 / 1024);
+      const fileSizeMB = Math.round(file.size / 1024 / 1024);
+      throw new Error(`File too large: ${fileSizeMB}MB. Maximum size: ${maxSizeMB}MB.`);
+    }
+
+    // Check if file is empty
+    if (file.size === 0) {
+      throw new Error('File is empty');
+    }
+
+    // Validate PDF header (basic check)
+    const firstBytes = await this.readFirstBytes(file, 8);
+    const pdfHeader = new TextDecoder().decode(firstBytes);
+    if (!pdfHeader.startsWith('%PDF-')) {
+      throw new Error('File does not appear to be a valid PDF');
+    }
+
+    console.log(`✅ PDF validation passed - Size: ${Math.round(file.size / 1024)}KB`);
+  }
+
+  /**
+   * Convert file to base64 for AI analysis
+   */
+  private async convertToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
       
-      // Convert Gemini analysis to QuizElement format
-      this.convertGeminiToElements();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+        } else {
+          reject(new Error('Failed to convert file to base64'));
+        }
+      };
       
-      console.log('✅ Gemini analysis completed:', {
-        questionsFound: this.analysisResult.extractedQuestions.length,
-        sectionsFound: this.analysisResult.documentStructure.sections.length,
-        confidence: this.analysisResult.processingInfo.confidence
-      });
+      reader.onerror = () => {
+        reject(new Error('Failed to read file'));
+      };
+      
+      reader.readAsDataURL(file);
+    });
+  }
 
+  /**
+   * Analyze PDF with Gemini AI
+   */
+  private async analyzeWithGemini(
+    request: GeminiAnalysisRequest,
+    onProgress?: (status: AnalysisStatus) => void
+  ): Promise<ProcessingResult> {
+    try {
+      const client = await getGeminiClient(this.config.geminiConfig);
+      return await client.analyzePDF(request, onProgress);
     } catch (error) {
       console.error('❌ Gemini analysis failed:', error);
       
-      // Fallback to basic extraction if AI fails
-      console.log('🔄 Falling back to basic extraction...');
-      await this.fallbackExtraction();
-    }
-  }
-
-  /**
-   * Convert Gemini analysis results to QuizElement format
-   */
-  private convertGeminiToElements(): void {
-    if (!this.analysisResult) return;
-
-    this.elements = [];
-    const { documentStructure, extractedQuestions } = this.analysisResult;
-
-    // Add document title as first element
-    if (this.analysisResult.extractedContent.title) {
-      this.elements.push({
-        type: 'title',
-        content: this.analysisResult.extractedContent.title,
-        position: { x: 100, y: 750 },
-        originalFont: 'Helvetica-Bold',
-        originalSize: 18
-      });
-    }
-
-    // Add instructions if available
-    if (this.analysisResult.extractedContent.instructions && this.analysisResult.extractedContent.instructions.length > 0) {
-      this.elements.push({
-        type: 'text',
-        content: this.analysisResult.extractedContent.instructions.join(' '),
-        position: { x: 100, y: 700 },
-        originalFont: 'Helvetica',
-        originalSize: 12
-      });
-    }
-
-    // Convert document sections to QuizElements
-    documentStructure.sections.forEach((section: DocumentSection, index: number) => {
-      const element: QuizElement = {
-        type: this.mapSectionTypeToElementType(section.type),
-        content: section.content,
-        position: {
-          x: 100,
-          y: 650 - (index * 40) // Adjust spacing
-        },
-        originalFont: section.formatting?.isBold ? 'Helvetica-Bold' : 'Helvetica',
-        originalSize: this.mapFontSizeToNumber(section.formatting?.fontSize)
-      };
-
-      this.elements.push(element);
-    });
-
-    // Add extracted questions as separate elements with better positioning
-    extractedQuestions.forEach((question, index) => {
-      const questionY = 500 - (index * 120); // More space between questions
-
-      // Main question
-      const questionElement: QuizElement = {
-        type: 'question',
-        content: `${question.number}. ${question.content}`,
-        position: {
-          x: 120,
-          y: questionY
-        },
-        originalFont: 'Helvetica-Bold',
-        originalSize: 12
-      };
-
-      this.elements.push(questionElement);
-
-      // Add options if it's multiple choice
-      if (question.options && question.options.length > 0) {
-        question.options.forEach((option, optIndex) => {
-          const optionElement: QuizElement = {
-            type: 'answer',
-            content: option,
-            position: {
-              x: 140,
-              y: questionY - 20 - (optIndex * 18) // Better spacing for options
-            },
-            originalFont: 'Helvetica',
-            originalSize: 10
-          };
-
-          this.elements.push(optionElement);
-        });
+      if (this.config.enableFallback) {
+        console.log('🔄 Using fallback analysis...');
+        return this.createFallbackAnalysis(request);
       }
-    });
-
-    console.log(`📝 Converted ${this.elements.length} elements from Gemini analysis`);
-  }
-
-  /**
-   * Map Gemini section types to QuizElement types
-   */
-  private mapSectionTypeToElementType(sectionType: string): QuizElement['type'] {
-    switch (sectionType) {
-      case 'header':
-        return 'title';
-      case 'question':
-        return 'question';
-      case 'answer':
-        return 'answer';
-      case 'instruction':
-      case 'content':
-      default:
-        return 'text';
+      
+      throw error;
     }
   }
 
   /**
-   * Map font size strings to numbers
+   * Apply branding to PDF
    */
-  private mapFontSizeToNumber(fontSize?: string): number {
-    switch (fontSize) {
-      case 'large':
-        return 16;
-      case 'small':
-        return 10;
-      case 'normal':
-      default:
-        return 12;
+  private async applyBranding(
+    file: File,
+    brandKit: BrandKit,
+    analysisResult?: GeminiAnalysisResponse
+  ): Promise<Uint8Array> {
+    try {
+      // Read original PDF
+      const pdfBytes = await file.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(pdfBytes);
+
+      // Apply brand elements
+      await this.addBrandElements(pdfDoc, brandKit, analysisResult);
+
+      // Generate final PDF
+      const finalPdfBytes = await pdfDoc.save();
+      return finalPdfBytes;
+
+    } catch (error) {
+      throw new Error(`Branding failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   /**
-   * Detect document type from filename
+   * Add brand elements to PDF
    */
-  private detectDocumentType(fileName: string): 'quiz' | 'worksheet' | 'general' {
-    const lowerName = fileName.toLowerCase();
+  private async addBrandElements(
+    pdfDoc: PDFDocument,
+    brandKit: BrandKit,
+    analysisResult?: GeminiAnalysisResponse
+  ): Promise<void> {
+    const pages = pdfDoc.getPages();
     
-    if (lowerName.includes('quiz') || lowerName.includes('test') || lowerName.includes('exam')) {
-      return 'quiz';
-    }
-    
-    if (lowerName.includes('worksheet') || lowerName.includes('exercise') || lowerName.includes('practice')) {
-      return 'worksheet';
-    }
-    
-    return 'general';
-  }
-
-  /**
-   * Fallback content extraction (basic method)
-   */
-  private async fallbackExtraction(): Promise<void> {
-    if (!this.pdfDoc) return;
-
-    console.log('📝 Using fallback extraction method...');
-    
-    this.elements = [];
-    const pages = this.pdfDoc.getPages();
-
-    for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
-      const page = pages[pageIndex];
+    // Apply branding to each page
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i];
       const { width, height } = page.getSize();
 
-      // Create basic structure based on page layout
-      if (pageIndex === 0) {
-        // Main title
-        this.elements.push({
-          type: 'title',
-          content: 'Document Title (Please edit)',
-          position: { x: width / 2, y: height - 100 },
-          originalFont: 'Helvetica-Bold',
-          originalSize: 18,
-        });
-
-        // Instructions
-        this.elements.push({
-          type: 'text',
-          content: 'Instructions: Please review and edit the extracted content below.',
-          position: { x: 100, y: height - 150 },
-          originalFont: 'Helvetica',
-          originalSize: 12,
-        });
+      // Add logo if available
+      if (brandKit.logo) {
+        await this.addLogo(page, brandKit.logo, width, height);
       }
 
-      // Add placeholder questions
-      for (let i = 1; i <= 3; i++) {
-        this.elements.push({
-          type: 'question',
-          content: `Question ${pageIndex * 3 + i}: [Please edit this question content]`,
-          position: { x: 120, y: height - 200 - (i * 80) },
-          originalFont: 'Helvetica-Bold',
-          originalSize: 12,
-        });
+      // Add brand colors and styling
+      await this.applyBrandStyling(page, brandKit, width, height);
+
+      // Add footer with brand information
+      if (brandKit.footerText) {
+        await this.addFooter(page, brandKit, width, height);
+      }
+
+      // Add watermark if specified
+      if (brandKit.watermark) {
+        await this.addWatermark(page, brandKit.watermark, width, height);
       }
     }
 
-    console.log(`📋 Fallback extraction created ${this.elements.length} placeholder elements`);
+    // Update document metadata
+    pdfDoc.setTitle(analysisResult?.extractedContent.title || 'Branded Document');
+    pdfDoc.setCreator('DocuBrand - Document Branding Tool');
+    pdfDoc.setProducer('DocuBrand v1.0');
+    pdfDoc.setCreationDate(new Date());
+    pdfDoc.setModificationDate(new Date());
   }
 
   /**
-   * Apply brand kit to the document
+   * Add logo to page
    */
-  async applyBranding(brandKit: BrandKit): Promise<void> {
-    if (!this.pdfDoc) throw new Error('PDF not loaded');
-
-    console.log('🎨 Applying branding...', {
-      hasLogo: !!brandKit.logo.dataUrl,
-      color: brandKit.color,
-      font: brandKit.font
-    });
-    
-    const pages = this.pdfDoc.getPages();
-    
-    for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
-      const page = pages[pageIndex];
-      await this.applyBrandingToPage(page, brandKit, pageIndex);
-    }
-
-    console.log('✅ Branding applied to all pages');
-  }
-
-  /**
-   * Apply branding to a specific page
-   */
-  private async applyBrandingToPage(page: PDFPage, brandKit: BrandKit, pageIndex: number): Promise<void> {
-    const { width, height } = page.getSize();
-
+  private async addLogo(page: any, logoUrl: string, pageWidth: number, pageHeight: number): Promise<void> {
     try {
-      // 1. Add logo if provided
-      if (brandKit.logo.dataUrl) {
-        await this.addLogoToPage(page, brandKit.logo.dataUrl, width, height);
+      // For now, we'll add a placeholder for logo
+      // In production, you'd need to fetch and embed the actual image
+      console.log('🖼️ Logo placement reserved for:', logoUrl);
+      
+      // Reserve space for logo (top-right corner)
+      const logoWidth = Math.min(100, pageWidth * 0.15);
+      const logoHeight = logoWidth * 0.6; // Maintain aspect ratio
+      
+      // This is where you'd embed the actual logo image
+      // const logoImage = await pdfDoc.embedPng(logoBytes);
+      // page.drawImage(logoImage, {
+      //   x: pageWidth - logoWidth - 20,
+      //   y: pageHeight - logoHeight - 20,
+      //   width: logoWidth,
+      //   height: logoHeight
+      // });
+      
+    } catch (error) {
+      console.warn('⚠️ Failed to add logo:', error);
+    }
+  }
+
+  /**
+   * Apply brand styling to page
+   */
+  private async applyBrandStyling(page: any, brandKit: BrandKit, pageWidth: number, pageHeight: number): Promise<void> {
+    try {
+      // Add brand color accents
+      if (brandKit.primaryColor) {
+        const color = this.hexToRgb(brandKit.primaryColor);
+        
+        // Add thin colored border at top
+        page.drawRectangle({
+          x: 0,
+          y: pageHeight - 5,
+          width: pageWidth,
+          height: 5,
+          color: rgb(color.r / 255, color.g / 255, color.b / 255)
+        });
       }
 
-      // 2. Apply brand color header
-      await this.applyBrandColorToPage(page, brandKit.color, width, height);
-
-      // 3. Add footer with branding
-      await this.addBrandedFooter(page, brandKit, width, height);
-
-      // 4. Apply enhanced content formatting
-      if (this.analysisResult) {
-        await this.applyContentFormatting(page, brandKit, pageIndex);
+      // Add secondary color accent if available
+      if (brandKit.secondaryColor) {
+        const color = this.hexToRgb(brandKit.secondaryColor);
+        
+        // Add thin colored border at bottom
+        page.drawRectangle({
+          x: 0,
+          y: 0,
+          width: pageWidth,
+          height: 3,
+          color: rgb(color.r / 255, color.g / 255, color.b / 255)
+        });
       }
-
-      // 5. Add content elements to page
-      await this.addContentElements(page, brandKit, pageIndex);
 
     } catch (error) {
-      console.warn(`⚠️ Could not apply branding to page ${pageIndex + 1}:`, error);
+      console.warn('⚠️ Failed to apply brand styling:', error);
     }
   }
 
   /**
-   * Add content elements to the page
+   * Add footer with brand information
    */
-  private async addContentElements(page: PDFPage, brandKit: BrandKit, pageIndex: number): Promise<void> {
+  private async addFooter(page: any, brandKit: BrandKit, pageWidth: number, pageHeight: number): Promise<void> {
     try {
-      const font = await this.pdfDoc!.embedFont(StandardFonts.Helvetica);
-      const boldFont = await this.pdfDoc!.embedFont(StandardFonts.HelveticaBold);
-      const { height } = page.getSize();
-
-      // Filter elements for current page (simple approach for MVP)
-      const pageElements = this.elements.filter((_, index) => {
-        const elementsPerPage = 10; // Rough estimate
-        const elementPage = Math.floor(index / elementsPerPage);
-        return elementPage === pageIndex;
+      const font = await page.doc.embedFont(StandardFonts.Helvetica);
+      const fontSize = 8;
+      const text = brandKit.footerText || 'Branded with DocuBrand';
+      
+      page.drawText(text, {
+        x: 20,
+        y: 15,
+        size: fontSize,
+        font,
+        color: rgb(0.5, 0.5, 0.5)
       });
 
-      pageElements.forEach((element, index) => {
-        const yPosition = Math.max(50, element.position.y - (pageIndex * height));
-        
-        // Choose font based on element type
-        const elementFont = element.type === 'title' || element.type === 'question' ? boldFont : font;
-        
-        // Choose color based on element type
-        const textColor = element.type === 'title' ? 
-          this.hexToRgb(brandKit.color) : 
-          rgb(0.2, 0.2, 0.2);
-
-        page.drawText(element.content, {
-          x: element.position.x,
-          y: yPosition,
-          size: element.originalSize,
-          font: elementFont,
-          color: textColor,
-          maxWidth: 450, // Prevent text overflow
-        });
+      // Add timestamp
+      const timestamp = `Generated: ${new Date().toLocaleDateString()}`;
+      page.drawText(timestamp, {
+        x: pageWidth - 120,
+        y: 15,
+        size: fontSize,
+        font,
+        color: rgb(0.5, 0.5, 0.5)
       });
 
     } catch (error) {
-      console.warn('⚠️ Could not add content elements:', error);
+      console.warn('⚠️ Failed to add footer:', error);
     }
+  }
+
+  /**
+   * Add watermark to page
+   */
+  private async addWatermark(page: any, watermarkText: string, pageWidth: number, pageHeight: number): Promise<void> {
+    try {
+      const font = await page.doc.embedFont(StandardFonts.HelveticaBold);
+      const fontSize = 48;
+      
+      // Calculate center position
+      const textWidth = font.widthOfTextAtSize(watermarkText, fontSize);
+      const x = (pageWidth - textWidth) / 2;
+      const y = pageHeight / 2;
+
+      // Add semi-transparent watermark
+      page.drawText(watermarkText, {
+        x,
+        y,
+        size: fontSize,
+        font,
+        color: rgb(0.9, 0.9, 0.9),
+        opacity: 0.3
+      });
+
+    } catch (error) {
+      console.warn('⚠️ Failed to add watermark:', error);
+    }
+  }
+
+  /**
+   * Extract basic PDF metadata
+   */
+  private async extractMetadata(file: File): Promise<{ pages: number; size: number }> {
+    try {
+      const pdfBytes = await file.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(pdfBytes);
+      
+      return {
+        pages: pdfDoc.getPageCount(),
+        size: file.size
+      };
+    } catch (error) {
+      console.warn('⚠️ Failed to extract metadata:', error);
+      return {
+        pages: 1,
+        size: file.size
+      };
+    }
+  }
+
+  /**
+   * Read first few bytes of file for validation
+   */
+  private async readFirstBytes(file: File, count: number): Promise<Uint8Array> {
+    const slice = file.slice(0, count);
+    const buffer = await slice.arrayBuffer();
+    return new Uint8Array(buffer);
   }
 
   /**
    * Convert hex color to RGB
    */
   private hexToRgb(hex: string): { r: number; g: number; b: number } {
-    const r = parseInt(hex.slice(1, 3), 16) / 255;
-    const g = parseInt(hex.slice(3, 5), 16) / 255;
-    const b = parseInt(hex.slice(5, 7), 16) / 255;
-    return rgb(r, g, b);
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    } : { r: 0, g: 0, b: 0 };
   }
 
   /**
-   * Add logo to page header
+   * Create fallback analysis for when Gemini fails
    */
-  private async addLogoToPage(page: PDFPage, logoDataUrl: string, width: number, height: number): Promise<void> {
-    try {
-      // Convert data URL to image bytes
-      const base64Data = logoDataUrl.split(',')[1];
-      const imageBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-      
-      // Determine image type and embed
-      let image;
-      if (logoDataUrl.includes('data:image/png')) {
-        image = await this.pdfDoc!.embedPng(imageBytes);
-      } else if (logoDataUrl.includes('data:image/jpeg') || logoDataUrl.includes('data:image/jpg')) {
-        image = await this.pdfDoc!.embedJpg(imageBytes);
-      } else {
-        console.warn('⚠️ Unsupported image format, skipping logo');
-        return;
-      }
-
-      // Calculate logo size (max 60px height, maintain aspect ratio)
-      const maxHeight = 60;
-      const imageAspectRatio = image.width / image.height;
-      const logoHeight = Math.min(maxHeight, image.height);
-      const logoWidth = logoHeight * imageAspectRatio;
-
-      // Position logo in top-right corner
-      page.drawImage(image, {
-        x: width - logoWidth - 30,
-        y: height - logoHeight - 30,
-        width: logoWidth,
-        height: logoHeight,
-      });
-
-      console.log('✅ Logo added to page');
-
-    } catch (error) {
-      console.warn('⚠️ Could not add logo:', error);
-    }
-  }
-
-  /**
-   * Apply brand color header
-   */
-  private async applyBrandColorToPage(page: PDFPage, color: string, width: number, height: number): Promise<void> {
-    try {
-      // Convert hex color to RGB
-      const r = parseInt(color.slice(1, 3), 16) / 255;
-      const g = parseInt(color.slice(3, 5), 16) / 255;
-      const b = parseInt(color.slice(5, 7), 16) / 255;
-
-      // Add colored header bar
-      page.drawRectangle({
-        x: 0,
-        y: height - 15,
-        width: width,
-        height: 15,
-        color: rgb(r, g, b),
-      });
-
-      // Add accent border on the left
-      page.drawRectangle({
-        x: 0,
-        y: 0,
-        width: 5,
-        height: height,
-        color: rgb(r, g, b),
-      });
-
-      console.log('✅ Brand color applied');
-
-    } catch (error) {
-      console.warn('⚠️ Could not apply brand color:', error);
-    }
-  }
-
-  /**
-   * Add branded footer
-   */
-  private async addBrandedFooter(page: PDFPage, brandKit: BrandKit, width: number, height: number): Promise<void> {
-    try {
-      const font = await this.pdfDoc!.embedFont(StandardFonts.Helvetica);
-      
-      // Add brand text in footer
-      page.drawText('Branded with DocuBrand', {
-        x: 30,
-        y: 25,
-        size: 8,
-        font,
-        color: rgb(0.5, 0.5, 0.5),
-      });
-
-      // Add processing info if available
-      if (this.analysisResult) {
-        const confidence = Math.round(this.analysisResult.processingInfo.confidence * 100);
-        page.drawText(`AI Confidence: ${confidence}%`, {
-          x: width - 120,
-          y: 25,
-          size: 8,
-          font,
-          color: rgb(0.5, 0.5, 0.5),
-        });
-      }
-
-    } catch (error) {
-      console.warn('⚠️ Could not add footer:', error);
-    }
-  }
-
-  /**
-   * Apply enhanced content formatting based on Gemini analysis
-   */
-  private async applyContentFormatting(page: PDFPage, brandKit: BrandKit, pageIndex: number): Promise<void> {
-    if (!this.analysisResult) return;
-
-    try {
-      const font = await this.pdfDoc!.embedFont(StandardFonts.Helvetica);
-      const boldFont = await this.pdfDoc!.embedFont(StandardFonts.HelveticaBold);
-
-      // Only add header info on first page
-      if (pageIndex === 0) {
-        // Add document title if extracted
-        if (this.analysisResult.extractedContent.title) {
-          page.drawText(this.analysisResult.extractedContent.title, {
-            x: 50,
-            y: page.getSize().height - 80,
-            size: 16,
-            font: boldFont,
-            color: this.hexToRgb(brandKit.color),
-          });
-        }
-
-        // Add subject if available
-        if (this.analysisResult.documentStructure.subject) {
-          page.drawText(`Subject: ${this.analysisResult.documentStructure.subject}`, {
-            x: 50,
-            y: page.getSize().height - 110,
-            size: 12,
-            font,
-            color: rgb(0.4, 0.4, 0.4),
-          });
-        }
-      }
-
-    } catch (error) {
-      console.warn('⚠️ Could not apply content formatting:', error);
-    }
-  }
-
-  /**
-   * Generate the final branded PDF
-   */
-  async generatePDF(): Promise<Uint8Array> {
-    if (!this.pdfDoc) throw new Error('PDF not loaded');
-
-    try {
-      const pdfBytes = await this.pdfDoc.save();
-      console.log(`✅ Generated branded PDF: ${pdfBytes.length} bytes`);
-      return pdfBytes;
-    } catch (error) {
-      console.error('❌ Failed to generate PDF:', error);
-      throw new Error('Could not generate branded PDF');
-    }
-  }
-
-  /**
-   * Get processing result with enhanced information
-   */
-  getProcessingResult(): PDFProcessingResult | null {
-    if (!this.originalBytes || !this.pdfDoc) return null;
-
-    return {
-      originalPdf: this.originalBytes,
-      brandedPdf: null, // Will be set after generatePDF()
-      elements: this.elements,
-      pageCount: this.pdfDoc.getPageCount(),
-      // Add Gemini analysis info
-      ...(this.analysisResult && {
-        aiAnalysis: {
-          confidence: this.analysisResult.processingInfo.confidence,
-          questionsDetected: this.analysisResult.extractedQuestions.length,
-          sectionsDetected: this.analysisResult.documentStructure.sections.length,
-          model: this.analysisResult.processingInfo.model
-        }
-      })
-    };
-  }
-
-  /**
-   * MAIN METHOD: Process document with verified analysis result
-   */
-  async processDocument(
-    file: File, 
-    brandKit: BrandKit, 
-    verifiedAnalysisResult?: GeminiAnalysisResponse
-  ): Promise<PDFProcessingResult> {
-    const startTime = Date.now();
+  private createFallbackAnalysis(request: GeminiAnalysisRequest): ProcessingResult {
+    console.log('🔄 Creating fallback analysis...');
     
-    try {
-      console.log('🚀 Starting PDF processing...', {
-        withVerifiedContent: !!verifiedAnalysisResult,
-        fileName: file.name
-      });
-      
-      // Step 1: Load PDF with analysis (either verified or fresh)
-      if (verifiedAnalysisResult) {
-        await this.loadPDFWithAnalysis(file, verifiedAnalysisResult);
-        console.log('✅ Using verified analysis result');
-      } else {
-        await this.loadPDF(file);
-        console.log('✅ Using fresh AI analysis');
-      }
-      
-      // Step 2: Apply branding
-      await this.applyBranding(brandKit);
-      
-      // Step 3: Generate branded PDF
-      const brandedPdf = await this.generatePDF();
-      
-      // Step 4: Return result
-      const result = this.getProcessingResult()!;
-      result.brandedPdf = brandedPdf;
-      
-      const processingTime = Date.now() - startTime;
-      console.log(`✅ PDF processing completed in ${processingTime}ms`);
-      
-      return result;
-      
-    } catch (error) {
-      console.error('❌ PDF processing failed:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get analysis summary for user display
-   */
-  getAnalysisSummary(): {
-    hasAIAnalysis: boolean;
-    confidence?: number;
-    questionsFound?: number;
-    sectionsFound?: number;
-    documentType?: string;
-    processingMethod: 'ai' | 'fallback';
-  } {
-    if (this.analysisResult) {
-      return {
-        hasAIAnalysis: true,
-        confidence: this.analysisResult.processingInfo.confidence,
-        questionsFound: this.analysisResult.extractedQuestions.length,
-        sectionsFound: this.analysisResult.documentStructure.sections.length,
-        documentType: this.analysisResult.documentStructure.metadata.documentType,
-        processingMethod: 'ai'
-      };
-    }
-
     return {
-      hasAIAnalysis: false,
-      processingMethod: 'fallback'
+      success: true,
+      processingTime: 0,
+      warnings: ['AI analysis unavailable, using basic extraction'],
+      errors: [],
+      extractedQuestions: [],
+      documentStructure: {
+        type: request.documentType || 'general',
+        subject: 'Document Analysis',
+        confidence: 0.1,
+        sections: [{
+          id: 'fallback_section_1',
+          type: 'content',
+          content: 'Content extraction unavailable. Please review document manually.',
+          position: { page: 1, x: 0, y: 0, width: 100, height: 100 },
+          confidence: 0.1
+        }]
+      },
+      extractedContent: {
+        title: 'Document (Analysis Unavailable)',
+        subtitle: 'Please review content manually'
+      }
     };
   }
+}
+
+/**
+ * Singleton PDF processor instance
+ */
+let pdfProcessorInstance: PDFProcessor | null = null;
+
+/**
+ * Get PDF processor instance
+ */
+export function getPDFProcessor(config?: Partial<PDFProcessorConfig>): PDFProcessor {
+  if (!pdfProcessorInstance) {
+    pdfProcessorInstance = new PDFProcessor(config);
+  }
+  return pdfProcessorInstance;
+}
+
+/**
+ * Reset PDF processor instance
+ */
+export function resetPDFProcessor(): void {
+  pdfProcessorInstance = null;
 }
