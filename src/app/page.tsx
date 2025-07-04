@@ -6,6 +6,7 @@ import { useState } from "react";
 import { BrandKit } from "@/components/BrandKit";
 import { FileUpload } from "@/components/FileUpload";
 import { VerificationUI } from "@/components/VerificationUI";
+import { getPDFTemplateSystem } from '@/lib/pdf-template-system/PDFTemplateSystem';
 import { useBrandKit } from "@/lib/brand-kit";
 import { useDocuBrandAPI } from "@/lib/api-client";
 import { ProcessingStatus, PDFProcessingResult } from "@/types";
@@ -16,6 +17,7 @@ type WorkflowStep =
   | "upload"
   | "processing"
   | "verification"
+  | "template-system"
   | "generating"
   | "complete";
 
@@ -92,6 +94,21 @@ export default function HomePage() {
   // Handle content updates from verification UI
   const handleContentUpdated = (updatedResult: GeminiAnalysisResponse) => {
     setEditedAnalysisResult(updatedResult);
+  };
+
+  const handleUseTemplateSystem = async () => {
+    const templateSystem = getPDFTemplateSystem();
+    await templateSystem.initialize();
+    
+    // Set workflow step to template system
+    setCurrentStep('template-system');
+  };
+
+  const handlePDFGenerated = (pdf: Uint8Array) => {
+    // Assuming onApprove can take a PDF or you handle it differently
+    // For now, I'll set the brandedPdf and move to complete step
+    setBrandedPdf(pdf);
+    setCurrentStep('complete');
   };
 
   // Handle approval to generate branded PDF
@@ -414,6 +431,20 @@ export default function HomePage() {
                   onContentUpdated={handleContentUpdated}
                   onApprove={handleApproveContent}
                   onReject={handleRejectContent}
+                  brandKit={brandKit}
+                />
+              )}
+
+            {/* Step 3.5: Template System Integration */}
+            {currentStep === 'template-system' &&
+              uploadedFile &&
+              analysisResult &&
+              editedAnalysisResult && (
+                <TemplateSystemIntegration
+                  analysisResult={analysisResult}
+                  brandKit={brandKit}
+                  onPDFGenerated={handlePDFGenerated}
+                  onClose={() => setCurrentStep('verification')}
                 />
               )}
 

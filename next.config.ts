@@ -1,6 +1,8 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  
+
   // Enable experimental features for better font handling
   experimental: {
     esmExternals: true,
@@ -157,7 +159,7 @@ const nextConfig: NextConfig = {
 
   // Essential settings for PDF.js and fontkit compatibility
   reactStrictMode: false, // Disable for fontkit compatibility
-  swcMinify: true,
+  
 
   // Image optimization
   images: {

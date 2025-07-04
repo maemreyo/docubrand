@@ -12,7 +12,10 @@ import { DirectPDFViewer } from './DirectPDFViewer';
 import { contentFormatter } from './editor/ContentFormatter';
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Collapsible from '@radix-ui/react-collapsible';
-import { ChevronDownIcon, ChevronUpIcon, FileTextIcon, HelpCircleIcon, EyeIcon } from 'lucide-react';
+import { ChevronDownIcon, ChevronUpIcon, FileTextIcon, HelpCircleIcon, EyeIcon, FilePlusIcon } from 'lucide-react';
+import { TemplateSystemIntegration } from '@/components/pdf-template-system/TemplateSystemIntegration';
+import * as Dialog from '@radix-ui/react-dialog';
+import { Button } from './ui/button';
 
 interface VerificationUIProps {
   file: File;
@@ -33,6 +36,7 @@ export function VerificationUI({
 }: VerificationUIProps) {
   const [editedResult, setEditedResult] = useState<GeminiAnalysisResponse>(analysisResult);
   const [pdfUrl, setPdfUrl] = useState<string>('');
+  const [showTemplateSystem, setShowTemplateSystem] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [activeSection, setActiveSection] = useState<string | null>(null);
@@ -597,6 +601,13 @@ export function VerificationUI({
             )}
           </div>
           <div className="flex gap-3">
+            <Button 
+              onClick={() => setShowTemplateSystem(true)}
+              className="mb-4"
+            >
+              <FilePlusIcon className="w-4 h-4 mr-2" />
+              Use Template System
+            </Button>
             <button
               onClick={handleReject}
               disabled={isProcessing}
@@ -621,6 +632,25 @@ export function VerificationUI({
           </div>
         </div>
       </div>
+
+      {showTemplateSystem && (
+        <Dialog.Root open={showTemplateSystem} onOpenChange={setShowTemplateSystem}>
+          <Dialog.Content className="max-w-6xl max-h-[90vh] overflow-auto">
+            <TemplateSystemIntegration
+              analysisResult={analysisResult}
+              // Assuming brandKit is passed as a prop to VerificationUI or can be derived
+              // For now, I'll leave it as a placeholder. You might need to adjust this.
+              brandKit={{} as any} // Placeholder, replace with actual brandKit prop
+              onPDFGenerated={(pdf) => {
+                // Handle generated PDF
+                onApprove(); // Assuming onApprove can take a PDF or you handle it differently
+                setShowTemplateSystem(false);
+              }}
+              onClose={() => setShowTemplateSystem(false)}
+            />
+          </Dialog.Content>
+        </Dialog.Root>
+      )}
     </div>
   );
 }

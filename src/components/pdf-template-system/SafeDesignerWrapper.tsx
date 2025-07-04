@@ -1,4 +1,3 @@
-// src/components/pdf-template-system/SafeDesignerWrapper.tsx
 // Safe wrapper for PDFme Designer to handle lifecycle properly
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
@@ -20,13 +19,28 @@ interface DesignerState {
   error: string | null;
 }
 
-export function SafeDesignerWrapper({
-  template,
-  onTemplateChange,
-  onSaveTemplate,
-  onError,
-  className = ''
-}: SafeDesignerWrapperProps) {
+// Define the ref type for better reusability
+type DesignerRefType = {
+  getCurrentTemplate: () => PDFMeTemplate | null;
+  updateTemplate: (template: PDFMeTemplate) => boolean;
+  isInitialized: boolean;
+  isDestroyed: boolean;
+};
+
+// Internal implementation that uses forwardRef
+const SafeDesignerWrapperInternal = React.forwardRef<
+  DesignerRefType,
+  SafeDesignerWrapperProps
+>(function SafeDesignerWrapperInternalComponent(
+  {
+    template,
+    onTemplateChange,
+    onSaveTemplate,
+    onError,
+    className = ''
+  },
+  ref
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const designerRef = useRef<Designer | null>(null);
   const isDestroyedRef = useRef<boolean>(false);
@@ -178,9 +192,18 @@ export function SafeDesignerWrapper({
   // Update template when prop changes
   useEffect(() => {
     if (state.isInitialized && !isDestroyedRef.current) {
-      updateTemplate(template);
+      // Get current template to compare
+      const currentTemplate = getCurrentTemplate();
+      
+      // Only update if there's an actual change to avoid infinite loops
+      if (currentTemplate && (
+        JSON.stringify(template.schemas) !== JSON.stringify(currentTemplate.schemas) ||
+        template.basePdf !== currentTemplate.basePdf
+      )) {
+        updateTemplate(template);
+      }
     }
-  }, [template, state.isInitialized, updateTemplate]);
+  }, [template, state.isInitialized, updateTemplate, getCurrentTemplate]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -190,7 +213,7 @@ export function SafeDesignerWrapper({
   }, [destroyDesigner]);
 
   // Expose methods to parent component
-  React.useImperativeHandle(React.forwardRef<any, any>(() => null), () => ({
+  React.useImperativeHandle(ref, () => ({
     getCurrentTemplate,
     updateTemplate,
     isInitialized: state.isInitialized,
@@ -227,19 +250,14 @@ export function SafeDesignerWrapper({
       />
     </div>
   );
-}
-
-// Export with ref forwarding for imperative access
-export const SafeDesignerWrapperWithRef = React.forwardRef<
-  {
-    getCurrentTemplate: () => PDFMeTemplate | null;
-    updateTemplate: (template: PDFMeTemplate) => boolean;
-    isInitialized: boolean;
-    isDestroyed: boolean;
-  },
-  SafeDesignerWrapperProps
->((props, ref) => {
-  return <SafeDesignerWrapper {...props} />;
 });
 
+// Export the component with ref forwarding
+export const SafeDesignerWrapper = SafeDesignerWrapperInternal;
+
+// For backward compatibility
+export const SafeDesignerWrapperWithRef = SafeDesignerWrapper;
+
+// Set display names for better debugging
+SafeDesignerWrapper.displayName = 'SafeDesignerWrapper';
 SafeDesignerWrapperWithRef.displayName = 'SafeDesignerWrapperWithRef';
