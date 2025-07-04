@@ -13,8 +13,6 @@ import { contentFormatter } from './editor/ContentFormatter';
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Collapsible from '@radix-ui/react-collapsible';
 import { ChevronDownIcon, ChevronUpIcon, FileTextIcon, HelpCircleIcon, EyeIcon, FilePlusIcon } from 'lucide-react';
-import { TemplateSystemIntegration } from '@/components/pdf-template-system/TemplateSystemIntegration';
-import * as Dialog from '@radix-ui/react-dialog';
 import { Button } from './ui/button';
 
 interface VerificationUIProps {
@@ -633,24 +631,6 @@ export function VerificationUI({
         </div>
       </div>
 
-      {showTemplateSystem && (
-        <Dialog.Root open={showTemplateSystem} onOpenChange={setShowTemplateSystem}>
-          <Dialog.Content className="max-w-6xl max-h-[90vh] overflow-auto">
-            <TemplateSystemIntegration
-              analysisResult={analysisResult}
-              // Assuming brandKit is passed as a prop to VerificationUI or can be derived
-              // For now, I'll leave it as a placeholder. You might need to adjust this.
-              brandKit={{} as any} // Placeholder, replace with actual brandKit prop
-              onPDFGenerated={(pdf) => {
-                // Handle generated PDF
-                onApprove(); // Assuming onApprove can take a PDF or you handle it differently
-                setShowTemplateSystem(false);
-              }}
-              onClose={() => setShowTemplateSystem(false)}
-            />
-          </Dialog.Content>
-        </Dialog.Root>
-      )}
     </div>
   );
 }
