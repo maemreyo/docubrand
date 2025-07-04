@@ -12,7 +12,7 @@ import { EducationalTemplate } from "@/types/pdfme-extensions";
 interface TemplateDesignerDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  geminiAnalysis: GeminiAnalysisResponse;
+  initialTemplate?: EducationalTemplate;
   onSave?: (template: EducationalTemplate) => void;
   onPreview?: (template: EducationalTemplate) => void;
 }
@@ -47,6 +47,9 @@ export function TemplateDesignerDialog({
             <Dialog.Title className="text-xl font-semibold text-gray-900">
               Template Designer
             </Dialog.Title>
+            <Dialog.Description className="sr-only">
+              Design and edit your educational templates.
+            </Dialog.Description>
             <Dialog.Close asChild>
               <button className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                 <XIcon className="w-5 h-5" />
@@ -57,7 +60,7 @@ export function TemplateDesignerDialog({
           {/* Modal Content */}
           <div className="flex-1 overflow-hidden">
             <TemplateDesigner
-              geminiAnalysis={geminiAnalysis}
+              // initialTemplate={initialTemplate}
               onSave={handleSave}
               onPreview={handlePreview}
               className="h-full"
