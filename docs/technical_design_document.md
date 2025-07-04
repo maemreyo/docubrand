@@ -1,6 +1,6 @@
 Bạn nghĩ sao về kế hoạch phát triển PDF Builder với hệ thống template như chúng ta đã thảo luận?
 
-Hiện tại, chúng ta có thể đã có các component và file liên quan đến xử lý PDF, nhưng chúng có thể sẽ sớm trở nên lỗi thời so với hệ thống template được thiết kế dưới đây. Do đó, hãy bắt đầu phát triển hệ thống template một cách độc lập. Sau đó, chúng ta sẽ cần các tác vụ để tích hợp nó với hệ thống hiện có.
+Hiện tại, chúng ta có thể đã có các component và file liên quan đến xử lý PDF, nhưng chúng có thể sẽ sớm trở nên lỗi thời so so với hệ thống template được thiết kế dưới đây. Do đó, hãy bắt đầu phát triển hệ thống template một cách độc lập. Sau đó, chúng ta sẽ cần các tác vụ để tích hợp nó với hệ thống hiện có.
 
 Ví dụ, cần có cơ chế để tải dữ liệu API (đây là ví dụ về response `/sampleResponse.json`), tạo các block template và file template từ dữ liệu này.
 
@@ -228,7 +228,7 @@ const fontConfigs: FontConfig[] = [
       regular: '/fonts/NotoSansArabic-Regular.ttf',
       bold: '/fonts/NotoSansArabic-Bold.ttf',
       italic: '/fonts/NotoSansArabic-Italic.ttf',
-      boldItalic: '/fonts/NotoSansArabic-BoldItalic'
+      boldItalic: '/fonts/NotoSansArabic-Italic'
     },
     direction: 'rtl',
     unicodeRange: 'U+0600-06FF',
@@ -537,7 +537,7 @@ const chartPlugin = {
    ├── Option 2: "Add to Existing Template":
    │   ├── User selects an existing PDFme template.
    │   ├── Gemini analysis is re-displayed.
-   │   └── User can drag-and-drop extracted items from the analysis panel onto the PDFme Designer canvas.
+   │   ├── User can drag-and-drop extracted items from the analysis panel onto the PDFme Designer canvas.
    │       (System automatically creates appropriate PDFme fields/plugins and sets data bindings/relative positions).
 
 3. Design and Refine Template in PDFme Designer:
