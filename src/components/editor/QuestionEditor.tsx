@@ -12,6 +12,7 @@ interface QuestionEditorProps {
   onRemove: () => void;
   canRemove?: boolean;
   readonly?: boolean;
+  showAdvanced?: boolean;
 }
 
 export function QuestionEditor({
@@ -19,7 +20,8 @@ export function QuestionEditor({
   onUpdate,
   onRemove,
   canRemove = true,
-  readonly = false
+  readonly = false,
+  showAdvanced = false
 }: QuestionEditorProps) {
   const [localQuestion, setLocalQuestion] = useState<ExtractedQuestion>(question);
   const [isDirty, setIsDirty] = useState(false);

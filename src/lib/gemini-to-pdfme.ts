@@ -371,47 +371,85 @@ export class GeminiToPdfmeMapper {
 
     // Question options (for multiple choice)
     if (question.type === 'multiple_choice' && question.options) {
-      question.options.forEach((option, optionIndex) => {
-        const optionSchema: Schema = {
-          name: `question_${index}_option_${optionIndex}`,
-          type: 'text',
-          content: `${String.fromCharCode(65 + optionIndex)}. ${option}`,
-          position: { x: this.config.margin + 20, y: this.currentY },
-          width: this.contentWidth - 20,
-          height: this.config.fontSize.option * 1.2,
-          fontSize: this.config.fontSize.option,
-          fontColor: this.config.colors.option,
-          fontName: 'Roboto-Regular',
-          alignment: 'left',
-          characterSpacing: 0,
-          lineHeight: 1.2,
-        };
+      // Create a single multipleChoice schema instead of multiple text schemas
+      const multipleChoiceSchema: Schema = {
+        name: `question_${index}_mc`,
+        type: 'multipleChoice',
+        content: JSON.stringify({
+          question: question.content,
+          options: question.options,
+          correctAnswer: question.correctAnswer || '',
+          points: question.points || 0
+        }),
+        position: { x: this.config.margin, y: this.currentY },
+        width: this.contentWidth,
+        height: (question.options.length * 25) + 40, // Estimated height
+        fontSize: this.config.fontSize.question,
+        fontColor: this.config.colors.question,
+        fontName: 'Roboto-Regular',
+        alignment: 'left',
+        characterSpacing: 0,
+        lineHeight: 1.4,
+        options: question.options,
+        correctAnswer: question.correctAnswer,
+        points: question.points || 0
+      };
 
-        schemas.push(optionSchema);
-        this.currentY += this.config.fontSize.option * 1.2 + this.config.spacing.betweenOptions;
-      });
+      schemas.push(multipleChoiceSchema);
+      this.currentY += (question.options.length * 25) + 40 + this.config.spacing.afterQuestion;
     }
 
     // Answer space for other question types
-    if (question.type === 'short_answer' || question.type === 'essay') {
-      const answerHeight = question.type === 'essay' ? 60 : 20;
-      const answerSchema: Schema = {
-        name: `question_${index}_answer`,
-        type: 'text',
-        content: '',
-        position: { x: this.config.margin + 20, y: this.currentY },
-        width: this.contentWidth - 20,
-        height: answerHeight,
+    if (question.type === 'short_answer') {
+      const shortAnswerSchema: Schema = {
+        name: `question_${index}_short_answer`,
+        type: 'shortAnswer',
+        content: JSON.stringify({
+          question: question.content,
+          expectedAnswer: question.expectedAnswer || '',
+          maxLength: question.maxLength || 100,
+          points: question.points || 0
+        }),
+        position: { x: this.config.margin, y: this.currentY },
+        width: this.contentWidth,
+        height: 40,
         fontSize: this.config.fontSize.body,
         fontColor: this.config.colors.body,
         fontName: 'Roboto-Regular',
         alignment: 'left',
         characterSpacing: 0,
         lineHeight: 1.4,
+        expectedAnswer: question.expectedAnswer,
+        maxLength: question.maxLength || 100,
+        points: question.points || 0
       };
 
-      schemas.push(answerSchema);
-      this.currentY += answerHeight + this.config.spacing.afterQuestion;
+      schemas.push(shortAnswerSchema);
+      this.currentY += 40 + this.config.spacing.afterQuestion;
+    } else if (question.type === 'essay') {
+      const essaySchema: Schema = {
+        name: `question_${index}_essay`,
+        type: 'essay',
+        content: JSON.stringify({
+          question: question.content,
+          wordLimit: question.wordLimit || 500,
+          points: question.points || 0
+        }),
+        position: { x: this.config.margin, y: this.currentY },
+        width: this.contentWidth,
+        height: 80,
+        fontSize: this.config.fontSize.body,
+        fontColor: this.config.colors.body,
+        fontName: 'Roboto-Regular',
+        alignment: 'left',
+        characterSpacing: 0,
+        lineHeight: 1.4,
+        wordLimit: question.wordLimit || 500,
+        points: question.points || 0
+      };
+
+      schemas.push(essaySchema);
+      this.currentY += 80 + this.config.spacing.afterQuestion;
     }
 
     return schemas;

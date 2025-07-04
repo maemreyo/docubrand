@@ -1,48 +1,54 @@
 // CREATED: 2025-07-04 - Extended type definitions for pdfme educational integration
 
-import { Schema, Template, Plugin } from '@pdfme/common';
-import { GeminiAnalysisResponse, ExtractedQuestion, QuestionType } from './gemini';
+import { Schema, Template, Plugin } from "@pdfme/common";
+import {
+  GeminiAnalysisResponse,
+  ExtractedQuestion,
+  QuestionType,
+} from "./gemini";
 
 // Educational schema types
-export type EducationalSchemaType = 
-  | 'text'
-  | 'image'
-  | 'table'
-  | 'multipleChoice'
-  | 'trueFalse'
-  | 'shortAnswer'
-  | 'essay'
-  | 'fillInBlank'
-  | 'matching'
-  | 'ranking'
-  | 'rubric'
-  | 'answerKey'
-  | 'header'
-  | 'footer'
-  | 'instructionBox'
-  | 'scoreBox'
-  | 'signature'
-  | 'date'
-  | 'qrcode'
-  | 'checkbox'
-  | 'radioGroup';
+export type EducationalSchemaType =
+  | "line"
+  | "rectangle"
+  | "text"
+  | "image"
+  | "table"
+  | "multipleChoice"
+  | "trueFalse"
+  | "shortAnswer"
+  | "essay"
+  | "fillInBlank"
+  | "matching"
+  | "ranking"
+  | "rubric"
+  | "answerKey"
+  | "header"
+  | "footer"
+  | "instructionBox"
+  | "scoreBox"
+  | "signature"
+  | "date"
+  | "qrcode"
+  | "checkbox"
+  | "radioGroup";
 
 // Extended schema interface for educational content
 export interface EducationalSchema extends Schema {
   type: EducationalSchemaType;
-  
+
   // Educational-specific properties
   educational?: {
     questionType?: QuestionType;
     correctAnswer?: string | string[];
     points?: number;
-    difficulty?: 'easy' | 'medium' | 'hard';
+    difficulty?: "easy" | "medium" | "hard";
     subject?: string;
     topic?: string;
     learningObjective?: string;
     instructions?: string;
     rubricCriteria?: RubricCriteria[];
-    answerFormat?: 'text' | 'number' | 'date' | 'multiple-choice';
+    answerFormat?: "text" | "number" | "date" | "multiple-choice";
     requiresExplanation?: boolean;
     timeLimit?: number; // in minutes
     hints?: string[];
@@ -61,7 +67,7 @@ export interface EducationalSchema extends Schema {
   // Conditional rendering
   conditions?: {
     field: string;
-    operator: 'equals' | 'contains' | 'greater' | 'less' | 'not-equals';
+    operator: "equals" | "contains" | "greater" | "less" | "not-equals";
     value: any;
   }[];
 
@@ -93,10 +99,17 @@ export interface RubricLevel {
 // Educational template interface
 export interface EducationalTemplate extends Template {
   schemas: EducationalSchema[][];
-  
+
   // Educational metadata
   educational?: {
-    category: 'quiz' | 'worksheet' | 'exam' | 'assignment' | 'handout' | 'assessment';
+    metadata?: any;
+    category:
+      | "quiz"
+      | "worksheet"
+      | "exam"
+      | "assignment"
+      | "handout"
+      | "assessment";
     subject?: string;
     gradeLevel?: string;
     duration?: number; // in minutes
@@ -108,7 +121,7 @@ export interface EducationalTemplate extends Template {
     keywords?: string[];
     learningObjectives?: string[];
     prerequisites?: string[];
-    difficulty?: 'beginner' | 'intermediate' | 'advanced';
+    difficulty?: "beginner" | "intermediate" | "advanced";
     language?: string;
     accessibility?: {
       largeText?: boolean;
@@ -136,7 +149,7 @@ export interface EducationalTemplate extends Template {
 // Plugin definition for educational schemas
 export interface EducationalPlugin extends Plugin {
   educational?: {
-    category: 'input' | 'display' | 'assessment' | 'layout';
+    category: "input" | "display" | "assessment" | "layout";
     supportedQuestionTypes?: QuestionType[];
     gradingSupport?: boolean;
     exportFormats?: string[];
@@ -151,10 +164,10 @@ export interface EducationalPlugin extends Plugin {
 // Data binding interface for educational content
 export interface EducationalDataBinding {
   path: string;
-  type: 'text' | 'number' | 'boolean' | 'array' | 'object';
+  type: "text" | "number" | "boolean" | "array" | "object";
   educational?: {
     questionType?: QuestionType;
-    answerFormat?: 'text' | 'number' | 'date' | 'multiple-choice';
+    answerFormat?: "text" | "number" | "date" | "multiple-choice";
     validationRules?: ValidationRule[];
     scoringRules?: ScoringRule[];
   };
@@ -166,15 +179,15 @@ export interface EducationalDataBinding {
 
 // Validation rule interface
 export interface ValidationRule {
-  type: 'required' | 'minLength' | 'maxLength' | 'pattern' | 'range' | 'custom';
+  type: "required" | "minLength" | "maxLength" | "pattern" | "range" | "custom";
   value?: any;
   message: string;
-  severity: 'error' | 'warning' | 'info';
+  severity: "error" | "warning" | "info";
 }
 
 // Scoring rule interface
 export interface ScoringRule {
-  type: 'exact' | 'contains' | 'regex' | 'custom';
+  type: "exact" | "contains" | "regex" | "custom";
   correctAnswer: any;
   points: number;
   partialCredit?: boolean;
@@ -183,11 +196,11 @@ export interface ScoringRule {
 
 // Template generation options
 export interface TemplateGenerationOptions {
-  source: 'gemini' | 'manual' | 'import';
+  source: "gemini" | "manual" | "import";
   geminiAnalysis?: GeminiAnalysisResponse;
   layout?: {
-    pageSize: 'A4' | 'LETTER' | 'LEGAL';
-    orientation: 'portrait' | 'landscape';
+    pageSize: "A4" | "LETTER" | "LEGAL";
+    orientation: "portrait" | "landscape";
     margins: {
       top: number;
       right: number;
@@ -220,8 +233,8 @@ export interface TemplateGenerationOptions {
     includeAnswerKey: boolean;
     includeRubric: boolean;
     includeGradingSheet: boolean;
-    numberingStyle: 'numeric' | 'alphabetic' | 'roman';
-    questionLayout: 'vertical' | 'horizontal' | 'grid';
+    numberingStyle: "numeric" | "alphabetic" | "roman";
+    questionLayout: "vertical" | "horizontal" | "grid";
   };
 }
 
@@ -234,7 +247,7 @@ export interface TemplatePreview {
     fieldCount: number;
     questionCount: number;
     estimatedTime: number; // in minutes
-    difficulty: 'easy' | 'medium' | 'hard';
+    difficulty: "easy" | "medium" | "hard";
     lastModified: number;
   };
   sampleData?: any;
@@ -258,7 +271,7 @@ export interface TemplateCollection {
 export interface TemplateAnalysis {
   templateId: string;
   analysis: {
-    complexity: 'low' | 'medium' | 'high';
+    complexity: "low" | "medium" | "high";
     estimatedCompletionTime: number;
     fieldAnalysis: {
       totalFields: number;
@@ -280,8 +293,8 @@ export interface TemplateAnalysis {
 
 // Accessibility issue interface
 export interface AccessibilityIssue {
-  severity: 'error' | 'warning' | 'info';
-  type: 'contrast' | 'font-size' | 'structure' | 'navigation' | 'alt-text';
+  severity: "error" | "warning" | "info";
+  type: "contrast" | "font-size" | "structure" | "navigation" | "alt-text";
   description: string;
   suggestion: string;
   elementId?: string;
@@ -289,20 +302,20 @@ export interface AccessibilityIssue {
 
 // Template export options
 export interface TemplateExportOptions {
-  format: 'json' | 'pdf' | 'docx' | 'html' | 'csv';
+  format: "json" | "pdf" | "docx" | "html" | "csv";
   includeMetadata: boolean;
   includeDataBindings: boolean;
   includeSampleData: boolean;
   includePreview: boolean;
-  compression?: 'none' | 'zip' | 'gzip';
+  compression?: "none" | "zip" | "gzip";
   exportSettings?: {
     pdf?: {
-      quality: 'draft' | 'standard' | 'high';
+      quality: "draft" | "standard" | "high";
       includeAnswerKey: boolean;
       includeBlankVersion: boolean;
     };
     docx?: {
-      compatibility: 'office2016' | 'office2019' | 'office365';
+      compatibility: "office2016" | "office2019" | "office365";
       includeComments: boolean;
     };
     html?: {
@@ -315,9 +328,9 @@ export interface TemplateExportOptions {
 
 // Template import options
 export interface TemplateImportOptions {
-  format: 'json' | 'pdf' | 'docx' | 'html';
-  validation: 'strict' | 'lenient' | 'none';
-  conflictResolution: 'overwrite' | 'skip' | 'rename';
+  format: "json" | "pdf" | "docx" | "html";
+  validation: "strict" | "lenient" | "none";
+  conflictResolution: "overwrite" | "skip" | "rename";
   preserveIds: boolean;
   importSettings?: {
     pdf?: {
@@ -384,7 +397,7 @@ export interface TemplateConfiguration {
     enableSharing: boolean;
     allowComments: boolean;
     versionControl: boolean;
-    conflictResolution: 'auto' | 'manual';
+    conflictResolution: "auto" | "manual";
   };
 }
 
@@ -409,7 +422,14 @@ export type GenerationResult = {
 };
 
 export type TemplateEvent = {
-  type: 'created' | 'updated' | 'deleted' | 'generated' | 'shared' | 'imported' | 'exported';
+  type:
+    | "created"
+    | "updated"
+    | "deleted"
+    | "generated"
+    | "shared"
+    | "imported"
+    | "exported";
   templateId: string;
   userId?: string;
   timestamp: number;
@@ -417,16 +437,28 @@ export type TemplateEvent = {
 };
 
 // Type guards
-export function isEducationalSchema(schema: Schema): schema is EducationalSchema {
-  return 'educational' in schema;
+export function isEducationalSchema(
+  schema: Schema
+): schema is EducationalSchema {
+  return "educational" in schema;
 }
 
-export function isEducationalTemplate(template: Template): template is EducationalTemplate {
-  return 'educational' in template;
+export function isEducationalTemplate(
+  template: Template
+): template is EducationalTemplate {
+  return "educational" in template;
 }
 
 export function isValidQuestionType(type: string): type is QuestionType {
-  return ['multiple_choice', 'true_false', 'short_answer', 'essay', 'fill_in_blank', 'matching', 'ranking'].includes(type);
+  return [
+    "multiple_choice",
+    "true_false",
+    "short_answer",
+    "essay",
+    "fill_in_blank",
+    "matching",
+    "ranking",
+  ].includes(type);
 }
 
 // Default configurations
@@ -458,15 +490,15 @@ export const DEFAULT_EDUCATIONAL_CONFIG: TemplateConfiguration = {
     enableSharing: false,
     allowComments: false,
     versionControl: true,
-    conflictResolution: 'manual',
+    conflictResolution: "manual",
   },
 };
 
 export const DEFAULT_TEMPLATE_GENERATION_OPTIONS: TemplateGenerationOptions = {
-  source: 'manual',
+  source: "manual",
   layout: {
-    pageSize: 'A4',
-    orientation: 'portrait',
+    pageSize: "A4",
+    orientation: "portrait",
     margins: {
       top: 20,
       right: 20,
@@ -475,7 +507,7 @@ export const DEFAULT_TEMPLATE_GENERATION_OPTIONS: TemplateGenerationOptions = {
     },
   },
   styling: {
-    fontFamily: 'Roboto-Regular',
+    fontFamily: "Roboto-Regular",
     fontSize: {
       title: 18,
       heading: 14,
@@ -483,10 +515,10 @@ export const DEFAULT_TEMPLATE_GENERATION_OPTIONS: TemplateGenerationOptions = {
       caption: 10,
     },
     colors: {
-      primary: '#000000',
-      secondary: '#666666',
-      text: '#333333',
-      background: '#ffffff',
+      primary: "#000000",
+      secondary: "#666666",
+      text: "#333333",
+      background: "#ffffff",
     },
     spacing: {
       paragraph: 8,
@@ -499,7 +531,7 @@ export const DEFAULT_TEMPLATE_GENERATION_OPTIONS: TemplateGenerationOptions = {
     includeAnswerKey: false,
     includeRubric: false,
     includeGradingSheet: false,
-    numberingStyle: 'numeric',
-    questionLayout: 'vertical',
+    numberingStyle: "numeric",
+    questionLayout: "vertical",
   },
 };

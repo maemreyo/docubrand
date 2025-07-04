@@ -133,14 +133,27 @@ export interface EnhancedDocumentSection extends Omit<DocumentSection, 'formatti
   isEditing?: boolean;
   isDirty?: boolean;
   lastModified?: number;
+  isCollapsed?: boolean;
   
   // Content metadata
+  order?: number;
   wordCount?: number;
   characterCount?: number;
+  metadata?: {
+    originalIndex?: number;
+    wordCount?: number;
+    lastModified?: string;
+    [key: string]: any;
+  };
   
   // Validation
   validationErrors?: string[];
   isValid?: boolean;
+  validation?: {
+    isValid: boolean;
+    errors: string[];
+    warnings: string[];
+  };
   
   // Formatting
   formatting?: TextFormatting;
@@ -166,6 +179,7 @@ export interface SectionEditorProps {
   autoFocus?: boolean;
   showStats?: boolean;
   showPreview?: boolean;
+  showAdvanced?: boolean;
   
   // Event handlers
   onSave?: (content: string) => void;

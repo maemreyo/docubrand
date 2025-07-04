@@ -53,6 +53,7 @@ export interface PagePosition {
 
 export interface DocumentSection {
   id: string;
+  title: string;
   type: string;
   content: string;
   position: PagePosition;
@@ -392,6 +393,7 @@ export function isEnhancedQuestion(question: any): question is ExtractedQuestion
 export function isEnhancedSection(section: any): section is DocumentSection {
   return section && 
          typeof section.id === 'string' && 
+         typeof section.title === 'string' && 
          typeof section.content === 'string' && 
          typeof section.type === 'string' && 
          section.position &&

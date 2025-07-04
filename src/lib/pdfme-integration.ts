@@ -24,6 +24,7 @@ import {
   checkbox,
   radioGroup
 } from '@pdfme/schemas';
+import { getEducationalPlugins } from './educational-plugins';
 
 // Types
 export interface PdfmeIntegrationOptions {
@@ -75,6 +76,9 @@ export class PdfmeIntegration {
    * Get default plugins from @pdfme/schemas
    */
   private getDefaultPlugins(): Record<string, any> {
+    // Get educational plugins
+    const educationalPlugins = getEducationalPlugins();
+    
     return {
       // Basic plugins from @pdfme/schemas
       text: text,
@@ -98,6 +102,9 @@ export class PdfmeIntegration {
       qrcode: barcodes.qrcode,
       ean13: barcodes.ean13,
       code128: barcodes.code128,
+      
+      // Educational plugins
+      ...educationalPlugins,
     };
   }
 

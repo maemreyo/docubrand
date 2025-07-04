@@ -126,6 +126,10 @@ function validateDocumentSection(section: any, index: number): ValidationResult 
     errors.push(`${prefix}.id is required and must be a string`);
   }
 
+  if (!section.title || typeof section.title !== 'string') {
+    errors.push(`${prefix}.title is required and must be a string`);
+  }
+
   if (!section.type || typeof section.type !== 'string') {
     errors.push(`${prefix}.type is required and must be a string`);
   }
@@ -399,6 +403,7 @@ function sanitizeDocumentSection(section: any, index: number): DocumentSection |
 
   // Ensure required fields
   const id = section.id || `section_${index + 1}`;
+  const title = section.title || `Section ${index + 1}`;
   const content = section.content || '';
   
   if (!content.trim()) {
@@ -414,6 +419,7 @@ function sanitizeDocumentSection(section: any, index: number): DocumentSection |
 
   const sanitizedSection: DocumentSection = {
     id,
+    title: title.trim(),
     type,
     content: content.trim(),
     position: sanitizePosition(section.position, index),

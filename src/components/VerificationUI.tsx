@@ -1,19 +1,31 @@
-// UPDATED: 2025-07-03 - Enhanced layout with Radix UI Tabs for better UX
+// UPDATED: 2025-07-04 - Enhanced layout with improved Radix UI Tabs for better UX
 
-'use client';
+"use client";
 
-import { useState, useEffect, useCallback } from 'react';
-import { GeminiAnalysisResponse, ExtractedQuestion, DocumentSection } from '@/types/gemini';
-import { EnhancedDocumentSection, ContentType } from '@/types/editor';
-import { SectionEditor } from './editor/SectionEditor';
-import { QuestionEditor } from './editor/QuestionEditor';
-import { ContentEditor } from './ContentEditor';
-import { DirectPDFViewer } from './DirectPDFViewer';
-import { contentFormatter } from './editor/ContentFormatter';
-import * as Tabs from '@radix-ui/react-tabs';
-import * as Collapsible from '@radix-ui/react-collapsible';
-import { ChevronDownIcon, ChevronUpIcon, FileTextIcon, HelpCircleIcon, EyeIcon, FilePlusIcon } from 'lucide-react';
-import { Button } from './ui/button';
+import { useState, useEffect, useCallback } from "react";
+import {
+  GeminiAnalysisResponse,
+  ExtractedQuestion,
+  DocumentSection,
+} from "@/types/gemini";
+import { EnhancedDocumentSection, ContentType } from "@/types/editor";
+import { DirectPDFViewer } from "./DirectPDFViewer";
+import { contentFormatter } from "./editor/ContentFormatter";
+import { SectionsTab, QuestionsTab, OverviewTab } from "./verification";
+import * as Tabs from "@radix-ui/react-tabs";
+import {
+  FileTextIcon,
+  HelpCircleIcon,
+  EyeIcon,
+  FilePlusIcon,
+  CheckCircleIcon,
+  AlertCircleIcon,
+  InfoIcon,
+} from "lucide-react";
+import { Button } from "./ui/button";
+import { TemplateDesignerDialog } from "./TemplateDesignerDialog";
+
+
 
 interface VerificationUIProps {
   file: File;
@@ -30,207 +42,183 @@ export function VerificationUI({
   onContentUpdated,
   onApprove,
   onReject,
-  isProcessing = false
+  isProcessing = false,
 }: VerificationUIProps) {
-  const [editedResult, setEditedResult] = useState<GeminiAnalysisResponse>(analysisResult);
-  const [pdfUrl, setPdfUrl] = useState<string>('');
+  const [editedResult, setEditedResult] =
+    useState<GeminiAnalysisResponse>(analysisResult);
+  const [pdfUrl, setPdfUrl] = useState<string>("");
   const [showTemplateSystem, setShowTemplateSystem] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [activeSection, setActiveSection] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'sections' | 'questions' | 'overview'>('sections');
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<
+    "sections" | "questions" | "overview"
+  >("sections");
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
+    new Set()
+  );
 
   // Enhanced sections with editor-specific properties
-  const [enhancedSections, setEnhancedSections] = useState<EnhancedDocumentSection[]>(() => 
-    convertToEnhancedSections(analysisResult.documentStructure.sections)
-  );
+  const [enhancedSections, setEnhancedSections] = useState<
+    EnhancedDocumentSection[]
+  >(() => convertToEnhancedSections(analysisResult.documentStructure.sections));
 
   // Create PDF preview URL
   useEffect(() => {
     const url = URL.createObjectURL(file);
     setPdfUrl(url);
-    
-    return () => {
-      URL.revokeObjectURL(url);
-    };
+    return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  // Update parent when content changes
-  useEffect(() => {
-    onContentUpdated(editedResult);
-    setHasUnsavedChanges(true);
-  }, [editedResult, onContentUpdated]);
-
-  // Content validation
-  useEffect(() => {
+  // Validate content and update errors
+  const validateContent = useCallback(() => {
     const errors: string[] = [];
-    
-    if (!editedResult.extractedContent.title.trim()) {
-      errors.push('Document title is required');
-    }
-    
-    if (editedResult.extractedQuestions.length === 0 && enhancedSections.length === 0) {
-      errors.push('At least one question or content section is required');
-    }
 
-    editedResult.extractedQuestions.forEach((q, index) => {
-      if (!q.content.trim()) {
-        errors.push(`Question ${index + 1} content is empty`);
+    // Validate sections
+    enhancedSections.forEach((section, index) => {
+      if (!section.title?.trim()) {
+        errors.push(`Section ${index + 1}: Title is required`);
       }
-      if (q.type === 'multiple_choice' && (!q.options || q.options.length < 2)) {
-        errors.push(`Question ${index + 1} needs at least 2 options`);
+      if (!section.content?.trim()) {
+        errors.push(`Section ${index + 1}: Content is required`);
       }
     });
 
-    // Validate enhanced sections
-    enhancedSections.forEach((section, index) => {
-      if (section.validationErrors && section.validationErrors.length > 0) {
-        errors.push(`Section ${index + 1}: ${section.validationErrors.join(', ')}`);
+    // Validate questions
+    editedResult.extractedQuestions.forEach((question, index) => {
+      if (!question.content?.trim()) {
+        errors.push(`Question ${index + 1}: Question text is required`);
+      }
+      if (
+        question.type === "multiple_choice" &&
+        (!question.options || question.options.length < 2)
+      ) {
+        errors.push(
+          `Question ${
+            index + 1
+          }: At least 2 options required for multiple choice`
+        );
       }
     });
 
     setValidationErrors(errors);
-  }, [editedResult, enhancedSections]);
+  }, [enhancedSections, editedResult.extractedQuestions]);
 
-  // Convert regular sections to enhanced sections
-  function convertToEnhancedSections(sections: DocumentSection[]): EnhancedDocumentSection[] {
-    return sections.map(section => ({
-      ...section,
-      isEditing: false,
+  // Run validation on content changes
+  useEffect(() => {
+    validateContent();
+  }, [validateContent]);
+
+  // Convert sections to enhanced format
+  function convertToEnhancedSections(
+    sections: DocumentSection[]
+  ): EnhancedDocumentSection[] {
+    return sections.map((section, index) => ({
+      id: `section-${index}`,
+      title: section.title,
+      content: section.content,
+      type: "text" as ContentType,
+      order: index,
+      metadata: {
+        originalIndex: index,
+        wordCount: section.content.split(/\s+/).length,
+        lastModified: new Date().toISOString(),
+      },
+      isCollapsed: false,
       isDirty: false,
-      lastModified: Date.now(),
-      wordCount: contentFormatter.getWordCount(section.content),
-      characterCount: contentFormatter.getCharacterCount(section.content),
-      validationErrors: [],
-      isValid: true,
-      // Auto-detect content type
-      type: contentFormatter.detectContentType(section.content) as ContentType
+      validation: {
+        isValid: true,
+        errors: [],
+        warnings: [],
+      },
     }));
   }
 
-  // Enhanced section update handler
-  const updateEnhancedSection = useCallback((sectionId: string, updatedSection: EnhancedDocumentSection) => {
-    setEnhancedSections(prev => 
-      prev.map(s => s.id === sectionId ? updatedSection : s)
-    );
-
-    // Also update the main analysis result
-    setEditedResult(prev => ({
-      ...prev,
-      documentStructure: {
-        ...prev.documentStructure,
-        sections: enhancedSections.map(s => 
-          s.id === sectionId ? {
-            id: updatedSection.id,
-            type: updatedSection.type,
-            content: updatedSection.content,
-            position: updatedSection.position,
-            confidence: updatedSection.confidence
-          } : {
-            id: s.id,
-            type: s.type,
-            content: s.content,
-            position: s.position,
-            confidence: s.confidence
-          }
+  // Handle section updates
+  const handleSectionUpdate = useCallback(
+    (sectionId: string, updatedSection: EnhancedDocumentSection) => {
+      setEnhancedSections((prev) =>
+        prev.map((section) =>
+          section.id === sectionId
+            ? {
+                ...updatedSection,
+                isDirty: true,
+                metadata: {
+                  ...updatedSection.metadata,
+                  lastModified: new Date().toISOString(),
+                },
+              }
+            : section
         )
-      }
-    }));
-  }, [enhancedSections]);
+      );
+      setHasUnsavedChanges(true);
+    },
+    []
+  );
 
-  // Legacy section update handler (for backward compatibility)
-  const updateSection = useCallback((sectionId: string, updatedSection: DocumentSection) => {
-    setEditedResult(prev => ({
-      ...prev,
-      documentStructure: {
-        ...prev.documentStructure,
-        sections: prev.documentStructure.sections.map(s =>
-          s.id === sectionId ? updatedSection : s
-        )
-      }
-    }));
-  }, []);
-
-  const updateQuestion = useCallback((questionId: string, updatedQuestion: ExtractedQuestion) => {
-    setEditedResult(prev => ({
-      ...prev,
-      extractedQuestions: prev.extractedQuestions.map(q =>
-        q.id === questionId ? updatedQuestion : q
-      )
-    }));
-  }, []);
-
-  const updateDocumentInfo = useCallback((field: string, value: string) => {
-    if (field === 'title' || field === 'subtitle') {
-      setEditedResult(prev => ({
+  // Handle question updates
+  const handleQuestionUpdate = useCallback(
+    (questionIndex: number, updatedQuestion: ExtractedQuestion) => {
+      setEditedResult((prev) => ({
         ...prev,
-        extractedContent: {
-          ...prev.extractedContent,
-          [field]: value
-        }
+        extractedQuestions: prev.extractedQuestions.map((q, i) =>
+          i === questionIndex ? updatedQuestion : q
+        ),
       }));
-    } else if (field === 'subject') {
-      setEditedResult(prev => ({
-        ...prev,
-        documentStructure: {
-          ...prev.documentStructure,
-          subject: value
-        }
-      }));
+      setHasUnsavedChanges(true);
+    },
+    []
+  );
+
+  // Handle content approval
+  const handleApprove = useCallback(() => {
+    if (validationErrors.length > 0) {
+      alert("Please fix validation errors before proceeding");
+      return;
     }
-  }, []);
 
-  const addNewQuestion = useCallback(() => {
-    const newQuestion: ExtractedQuestion = {
-      id: `q_${Date.now()}`,
-      number: String(editedResult.extractedQuestions.length + 1),
-      content: '',
-      type: 'short_answer'
+    // Update the analysis result with enhanced sections
+    const updatedResult = {
+      ...editedResult,
+      documentStructure: {
+        ...editedResult.documentStructure,
+        sections: enhancedSections.map((section) => ({
+          title: section.title,
+          content: section.content,
+          type: section.type,
+        })),
+      },
     };
 
-    setEditedResult(prev => ({
-      ...prev,
-      extractedQuestions: [...prev.extractedQuestions, newQuestion]
-    }));
-  }, [editedResult.extractedQuestions.length]);
+    onContentUpdated(updatedResult);
+    setHasUnsavedChanges(false);
+    onApprove();
+  }, [
+    editedResult,
+    enhancedSections,
+    validationErrors,
+    onContentUpdated,
+    onApprove,
+  ]);
 
-  const removeQuestion = useCallback((questionId: string) => {
-    setEditedResult(prev => ({
-      ...prev,
-      extractedQuestions: prev.extractedQuestions.filter(q => q.id !== questionId)
-    }));
-  }, []);
-
-  const addNewSection = useCallback(() => {
-    const newSection: EnhancedDocumentSection = {
-      id: `section_${Date.now()}`,
-      type: 'text',
-      content: '',
-      position: { page: 1, x: 0, y: 0, width: 100, height: 20 },
-      confidence: 1.0,
-      isEditing: true,
-      isDirty: false,
-      lastModified: Date.now(),
-      wordCount: 0,
-      characterCount: 0,
-      validationErrors: [],
-      isValid: true
-    };
-
-    setEnhancedSections(prev => [...prev, newSection]);
-    setActiveSection(newSection.id);
-  }, []);
-
-  const removeSection = useCallback((sectionId: string) => {
-    setEnhancedSections(prev => prev.filter(s => s.id !== sectionId));
-    if (activeSection === sectionId) {
-      setActiveSection(null);
+  // Handle rejection
+  const handleReject = useCallback(() => {
+    if (hasUnsavedChanges) {
+      if (
+        !confirm(
+          "Are you sure you want to start over? You have unsaved changes."
+        )
+      ) {
+        return;
+      }
     }
-  }, [activeSection]);
+    setHasUnsavedChanges(false);
+    onReject();
+  }, [hasUnsavedChanges, onReject]);
 
+  // Toggle section collapse
   const toggleSectionCollapse = useCallback((sectionId: string) => {
-    setCollapsedSections(prev => {
+    setCollapsedSections((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(sectionId)) {
         newSet.delete(sectionId);
@@ -241,397 +229,261 @@ export function VerificationUI({
     });
   }, []);
 
-  const handleApprove = useCallback(() => {
-    if (validationErrors.length > 0) {
-      alert('Please fix validation errors before proceeding');
-      return;
-    }
-    setHasUnsavedChanges(false);
-    onApprove();
-  }, [validationErrors, onApprove]);
-
-  const handleReject = useCallback(() => {
-    if (hasUnsavedChanges) {
-      if (!confirm('You have unsaved changes. Are you sure you want to start over?')) {
-        return;
-      }
-    }
-    setHasUnsavedChanges(false);
-    onReject();
-  }, [hasUnsavedChanges, onReject]);
+  // Count statistics
+  const totalSections = enhancedSections.length;
+  const totalQuestions = editedResult.extractedQuestions.length;
+  const totalWords = enhancedSections.reduce(
+    (sum, section) => sum + (section.content?.split(/\s+/).length || 0),
+    0
+  );
+  const validSections = enhancedSections.filter(
+    (section) => section.title?.trim() && section.content?.trim()
+  ).length;
+  const validQuestions = editedResult.extractedQuestions.filter((question) =>
+    question.content?.trim()
+  ).length;
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-      {/* Header */}
-      <div className="bg-gray-50 border-b border-gray-200 p-6">
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+      {/* Enhanced Header */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-200 p-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900">Review & Edit Content</h2>
+            <h2 className="text-xl font-semibold text-gray-900">
+              Review & Edit Content
+            </h2>
             <p className="text-sm text-gray-600 mt-1">
-              AI extracted content below. Review and edit before generating branded PDF.
+              AI extracted content below. Review and edit before generating
+              branded PDF.
             </p>
           </div>
-          
-          {/* Stats Summary */}
-          <div className="flex items-center gap-6 text-sm text-gray-600">
-            <div className="flex items-center gap-1">
-              <FileTextIcon className="w-4 h-4" />
-              <span>{enhancedSections.length} sections</span>
+
+          {/* Enhanced Stats Summary */}
+          <div className="flex items-center gap-6">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-600">
+                {totalSections}
+              </div>
+              <div className="text-xs text-gray-500">Sections</div>
             </div>
-            <div className="flex items-center gap-1">
-              <HelpCircleIcon className="w-4 h-4" />
-              <span>{editedResult.extractedQuestions.length} questions</span>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-600">
+                {totalQuestions}
+              </div>
+              <div className="text-xs text-gray-500">Questions</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-purple-600">
+                {totalWords}
+              </div>
+              <div className="text-xs text-gray-500">Words</div>
             </div>
             {validationErrors.length > 0 && (
-              <div className="flex items-center gap-1 text-red-600">
-                <span className="w-2 h-2 bg-red-500 rounded-full" />
-                <span>{validationErrors.length} issues</span>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-red-600">
+                  {validationErrors.length}
+                </div>
+                <div className="text-xs text-gray-500">Issues</div>
               </div>
             )}
           </div>
         </div>
-        
-        {/* Validation Errors */}
+
+        {/* Enhanced Validation Status */}
         {validationErrors.length > 0 && (
-          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
-            <h4 className="text-sm font-medium text-red-800 mb-2">Please fix these issues:</h4>
+          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertCircleIcon className="w-5 h-5 text-red-600" />
+              <h4 className="text-sm font-medium text-red-800">
+                Please fix these issues:
+              </h4>
+            </div>
             <ul className="text-sm text-red-700 space-y-1">
               {validationErrors.map((error, index) => (
-                <li key={index}>• {error}</li>
+                <li key={index} className="flex items-start gap-2">
+                  <span className="text-red-400">•</span>
+                  <span>{error}</span>
+                </li>
               ))}
             </ul>
           </div>
         )}
       </div>
 
-      {/* Main Content - Improved Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6">
-        {/* PDF Viewer */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <EyeIcon className="w-5 h-5 text-gray-600" />
-            <h3 className="text-lg font-medium text-gray-900">Original Document</h3>
+      {/* Main Content - Enhanced Grid Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
+        {/* PDF Viewer Panel */}
+        <div className="border-r border-gray-200">
+          <div className="p-4 bg-gray-50 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <h3 className="font-medium text-gray-900 flex items-center gap-2">
+                <EyeIcon className="w-4 h-4" />
+                Original Document
+              </h3>
+              <span className="text-sm text-gray-500">
+                {file.name} • {(file.size / 1024 / 1024).toFixed(1)}MB
+              </span>
+            </div>
           </div>
-          <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div className="h-[600px]">
             <DirectPDFViewer file={file} dataUrl={pdfUrl} />
           </div>
         </div>
 
-        {/* Content Editor - Enhanced with Tabs */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-medium text-gray-900">Content Editor</h3>
-          </div>
-
-          {/* Radix UI Tabs for Better Organization */}
-          <Tabs.Root 
-            value={activeTab} 
-            onValueChange={(value) => setActiveTab(value as typeof activeTab)}
-            className="w-full"
+        {/* Enhanced Content Editor Panel */}
+        <div className="flex flex-col h-[600px]">
+          {/* Tab Navigation */}
+          <Tabs.Root
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as any)}
+            className="flex flex-col flex-grow h-full"
           >
-            <Tabs.List className="flex border-b border-gray-200">
+            <Tabs.List className="flex-shrink-0 border-b border-gray-200 bg-gray-50">
               <Tabs.Trigger
                 value="sections"
-                className="flex-1 px-4 py-3 text-sm font-medium text-gray-700 hover:text-gray-900 focus:outline-none focus:text-blue-600 border-b-2 border-transparent data-[state=active]:border-blue-600 data-[state=active]:text-blue-600"
+                className="flex-1 px-4 py-3 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 data-[state=active]:text-blue-600 data-[state=active]:bg-white data-[state=active]:border-b-2 data-[state=active]:border-blue-600 transition-colors"
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center gap-2">
                   <FileTextIcon className="w-4 h-4" />
-                  <span>Sections ({enhancedSections.length})</span>
+                  <span>Sections</span>
+                  <span className="bg-blue-100 text-blue-600 px-2 py-1 text-xs rounded-full">
+                    {validSections}/{totalSections}
+                  </span>
                 </div>
               </Tabs.Trigger>
-              
               <Tabs.Trigger
                 value="questions"
-                className="flex-1 px-4 py-3 text-sm font-medium text-gray-700 hover:text-gray-900 focus:outline-none focus:text-blue-600 border-b-2 border-transparent data-[state=active]:border-blue-600 data-[state=active]:text-blue-600"
+                className="flex-1 px-4 py-3 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 data-[state=active]:text-blue-600 data-[state=active]:bg-white data-[state=active]:border-b-2 data-[state=active]:border-blue-600 transition-colors"
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center gap-2">
                   <HelpCircleIcon className="w-4 h-4" />
-                  <span>Questions ({editedResult.extractedQuestions.length})</span>
+                  <span>Questions</span>
+                  <span className="bg-green-100 text-green-600 px-2 py-1 text-xs rounded-full">
+                    {validQuestions}/{totalQuestions}
+                  </span>
                 </div>
               </Tabs.Trigger>
-              
               <Tabs.Trigger
                 value="overview"
-                className="flex-1 px-4 py-3 text-sm font-medium text-gray-700 hover:text-gray-900 focus:outline-none focus:text-blue-600 border-b-2 border-transparent data-[state=active]:border-blue-600 data-[state=active]:text-blue-600"
+                className="flex-1 px-4 py-3 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 data-[state=active]:text-blue-600 data-[state=active]:bg-white data-[state=active]:border-b-2 data-[state=active]:border-blue-600 transition-colors"
               >
-                <div className="flex items-center gap-2">
-                  <EyeIcon className="w-4 h-4" />
+                <div className="flex items-center justify-center gap-2">
+                  <InfoIcon className="w-4 h-4" />
                   <span>Overview</span>
+                  {validationErrors.length === 0 && (
+                    <CheckCircleIcon className="w-4 h-4 text-green-500" />
+                  )}
                 </div>
               </Tabs.Trigger>
             </Tabs.List>
 
+            {/* Tab Content */}
+
             {/* Sections Tab */}
-            <Tabs.Content value="sections" className="mt-4">
-              <div className="space-y-4 max-h-[600px] overflow-y-auto">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-gray-600">
-                    Edit document sections below. Click to expand or collapse.
-                  </p>
-                  <button
-                    onClick={addNewSection}
-                    className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-                  >
-                    Add Section
-                  </button>
-                </div>
-                
-                {enhancedSections.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500 border border-gray-200 rounded-lg">
-                    <div className="text-2xl mb-2">📄</div>
-                    <p className="text-sm">No sections detected</p>
-                    <button
-                      onClick={addNewSection}
-                      className="mt-3 px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-                    >
-                      Add First Section
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {enhancedSections.map((section) => (
-                      <Collapsible.Root
-                        key={section.id}
-                        open={!collapsedSections.has(section.id)}
-                        onOpenChange={() => toggleSectionCollapse(section.id)}
-                      >
-                        <div className="border border-gray-200 rounded-lg overflow-hidden">
-                          <Collapsible.Trigger asChild>
-                            <button className="w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 flex items-center justify-between text-left">
-                              <div className="flex items-center gap-3">
-                                <div className={`
-                                  px-2 py-1 rounded text-xs font-medium
-                                  ${section.type === 'header' ? 'bg-purple-100 text-purple-800' : 
-                                    section.type === 'question' ? 'bg-blue-100 text-blue-800' : 
-                                    'bg-gray-100 text-gray-800'}
-                                `}>
-                                  {section.type}
-                                </div>
-                                <span className="text-sm font-medium text-gray-900">
-                                  {section.content.slice(0, 50)}...
-                                </span>
-                              </div>
-                              {collapsedSections.has(section.id) ? (
-                                <ChevronDownIcon className="w-5 h-5 text-gray-400" />
-                              ) : (
-                                <ChevronUpIcon className="w-5 h-5 text-gray-400" />
-                              )}
-                            </button>
-                          </Collapsible.Trigger>
-                          
-                          <Collapsible.Content>
-                            <div className="p-4 border-t border-gray-200">
-                              <SectionEditor
-                                section={section}
-                                onUpdate={(updated) => updateEnhancedSection(section.id, updated)}
-                                onDelete={() => removeSection(section.id)}
-                                isActive={activeSection === section.id}
-                                onActivate={() => setActiveSection(section.id)}
-                                config={{
-                                  autoSave: { enabled: true, interval: 3000 },
-                                  toolbar: { enabled: true, compact: true },
-                                  validation: { enabled: true }
-                                }}
-                              />
-                            </div>
-                          </Collapsible.Content>
-                        </div>
-                      </Collapsible.Root>
-                    ))}
-                  </div>
-                )}
-              </div>
+            <Tabs.Content
+              value="sections"
+              className="flex flex-col h-full"
+            >
+              <SectionsTab
+                enhancedSections={enhancedSections}
+                onSectionUpdate={handleSectionUpdate}
+                activeSection={activeSection}
+                setActiveSection={setActiveSection}
+                collapsedSections={collapsedSections}
+                toggleSectionCollapse={toggleSectionCollapse}
+                validSections={validSections}
+                totalSections={totalSections}
+              />
             </Tabs.Content>
 
             {/* Questions Tab */}
-            <Tabs.Content value="questions" className="mt-4">
-              <div className="space-y-4 max-h-[600px] overflow-y-auto">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-gray-600">
-                    Edit questions extracted from the document.
-                  </p>
-                  <button
-                    onClick={addNewQuestion}
-                    className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-                  >
-                    Add Question
-                  </button>
-                </div>
-                
-                {editedResult.extractedQuestions.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500 border border-gray-200 rounded-lg">
-                    <div className="text-2xl mb-2">❓</div>
-                    <p className="text-sm">No questions detected</p>
-                    <button
-                      onClick={addNewQuestion}
-                      className="mt-3 px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-                    >
-                      Add First Question
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {editedResult.extractedQuestions.map((question, index) => (
-                      <div key={question.id} className="border border-gray-200 rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-900">
-                              Question {index + 1}
-                            </span>
-                            <span className={`
-                              px-2 py-1 rounded text-xs font-medium
-                              ${question.type === 'multiple_choice' ? 'bg-green-100 text-green-800' : 
-                                question.type === 'short_answer' ? 'bg-blue-100 text-blue-800' : 
-                                'bg-gray-100 text-gray-800'}
-                            `}>
-                              {question.type.replace('_', ' ')}
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => removeQuestion(question.id)}
-                            className="text-red-600 hover:text-red-800 text-sm"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                        <QuestionEditor
-                          question={question}
-                          onUpdate={(updated) => updateQuestion(question.id, updated)}
-                          onRemove={() => removeQuestion(question.id)}
-                          canRemove={editedResult.extractedQuestions.length > 1}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+            <Tabs.Content value="questions" className="flex flex-col h-full">
+              <QuestionsTab
+                extractedQuestions={editedResult.extractedQuestions}
+                onQuestionUpdate={handleQuestionUpdate}
+                validQuestions={validQuestions}
+                totalQuestions={totalQuestions}
+              />
             </Tabs.Content>
 
             {/* Overview Tab */}
-            <Tabs.Content value="overview" className="mt-4">
-              <div className="space-y-6">
-                {/* Document Information */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h4 className="text-sm font-medium text-gray-900 mb-3">Document Information</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Title
-                      </label>
-                      <input
-                        type="text"
-                        value={editedResult.extractedContent.title}
-                        onChange={(e) => updateDocumentInfo('title', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Subject
-                      </label>
-                      <input
-                        type="text"
-                        value={editedResult.documentStructure.subject}
-                        onChange={(e) => updateDocumentInfo('subject', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Content Statistics */}
-                <div className="bg-blue-50 rounded-lg p-4">
-                  <h4 className="text-sm font-medium text-blue-900 mb-3">Content Statistics</h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-blue-600">
-                        {enhancedSections.length}
-                      </div>
-                      <div className="text-blue-800">Sections</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-blue-600">
-                        {editedResult.extractedQuestions.length}
-                      </div>
-                      <div className="text-blue-800">Questions</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-blue-600">
-                        {enhancedSections.reduce((acc, s) => acc + (s.wordCount || 0), 0)}
-                      </div>
-                      <div className="text-blue-800">Words</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-blue-600">
-                        {validationErrors.length === 0 ? '✅' : '❌'}
-                      </div>
-                      <div className="text-blue-800">Valid</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Validation Status */}
-                {validationErrors.length > 0 && (
-                  <div className="bg-red-50 rounded-lg p-4">
-                    <h4 className="text-sm font-medium text-red-900 mb-3">Issues to Fix</h4>
-                    <ul className="text-sm text-red-700 space-y-1">
-                      {validationErrors.map((error, index) => (
-                        <li key={index}>• {error}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
+            <Tabs.Content value="overview" className="flex flex-col h-full">
+              <OverviewTab
+                editedResult={editedResult}
+                totalSections={totalSections}
+                totalQuestions={totalQuestions}
+                totalWords={totalWords}
+                validSections={validSections}
+                validQuestions={validQuestions}
+                validationErrors={validationErrors}
+              />
             </Tabs.Content>
           </Tabs.Root>
         </div>
       </div>
 
-      {/* Action Buttons */}
-      <div className="bg-gray-50 border-t border-gray-200 px-6 py-4">
+      {/* Enhanced Action Bar */}
+      <div className="bg-gradient-to-r from-gray-50 to-gray-100 border-t border-gray-200 p-6">
         <div className="flex items-center justify-between">
-          <div className="text-sm text-gray-600">
+          <div className="flex items-center gap-4">
             {hasUnsavedChanges && (
-              <span className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                Unsaved changes
-              </span>
+              <div className="flex items-center gap-2 text-yellow-600">
+                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
+                <span className="text-sm font-medium">Unsaved changes</span>
+              </div>
             )}
-          </div>
-          <div className="flex gap-3">
-            <Button 
+            <Button
               onClick={() => setShowTemplateSystem(true)}
-              className="mb-4"
+              variant="outline"
+              className="flex items-center gap-2"
             >
-              <FilePlusIcon className="w-4 h-4 mr-2" />
+              <FilePlusIcon className="w-4 h-4" />
               Use Template System
             </Button>
+            
+            <TemplateDesignerDialog
+              isOpen={showTemplateSystem}
+              onOpenChange={setShowTemplateSystem}
+              geminiAnalysis={analysisResult}
+              onSave={(template) => {
+                // Handle template save
+                console.log('Template saved:', template);
+              }}
+              onPreview={(template) => {
+                // Handle template preview
+                console.log('Template preview:', template);
+              }}
+            />
+          </div>
+
+          <div className="flex items-center gap-3">
             <button
               onClick={handleReject}
               disabled={isProcessing}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              className="px-6 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Start Over
             </button>
             <button
               onClick={handleApprove}
               disabled={isProcessing || validationErrors.length > 0}
-              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {isProcessing ? (
                 <>
-                  <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2" />
-                  Generating...
+                  <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                  <span>Generating...</span>
                 </>
               ) : (
-                'Generate Branded PDF →'
+                <>
+                  <CheckCircleIcon className="w-4 h-4" />
+                  <span>Generate Branded PDF</span>
+                </>
               )}
             </button>
           </div>
         </div>
       </div>
-
     </div>
   );
 }
-
