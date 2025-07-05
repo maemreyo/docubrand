@@ -15,6 +15,7 @@ import { EducationalBlock } from "./template-designer/BlockLibrary";
 
 // Import fixed hook and integration
 import { useTemplateData } from "@/hooks/useTemplateData"; // Use fixed version
+import { PdfmeIntegration } from "@/lib/pdfme-integration";
 
 interface TemplateDesignerProps {
   initialTemplate?: EducationalTemplate;
@@ -139,11 +140,71 @@ export function TemplateDesigner({
   const handleBlockSelect = useCallback((block: EducationalBlock) => {
     console.log("TemplateDesigner: Block selected:", block.name);
     // Add block to template if designer is ready
-    if (designerInstance && canvasReady) {
-      // Implementation would depend on PDFme's API for adding schemas
-      console.log("Adding block to template:", block);
+    if (designerInstance && canvasReady && templateDefinition) {
+      if (block.id === 'multiple-choice') {
+        // Get current template
+        const currentTemplate = designerInstance.getTemplate();
+        
+        // Create a PdfmeIntegration instance
+        const pdfme = new PdfmeIntegration();
+        
+        // Add multiple choice block
+        try {
+          // Calculate position - center of the visible area
+          const visibleArea = designerInstance.getVisibleArea?.() || { x: 20, y: 20, width: 200, height: 200 };
+          const position = {
+            x: visibleArea.x + 20,
+            y: visibleArea.y + 20
+          };
+          
+          // Extract choices from the block schema
+          // This will be populated by the dialog in BlockLibrary
+          let choices = ["Option A", "Option B", "Option C", "Option D"];
+          
+          // If the block has educational data with choices, use those
+          if (block.schema.educational?.choices && Array.isArray(block.schema.educational.choices)) {
+            choices = block.schema.educational.choices;
+            console.log("Using choices from dialog:", choices);
+          }
+          
+          // Add the multiple choice block
+          const result = pdfme.addMultipleChoiceBlock(currentTemplate, {
+            position,
+            questionText: block.schema.content || "What is your question?",
+            choices: choices.filter(choice => choice.trim() !== ''),
+            width: block.schema.width || 180
+          });
+          
+          // Update the designer with the new template
+          designerInstance.updateTemplate(result.template);
+          
+          console.log("Added multiple choice block to template:", result.blockResult.groupId);
+        } catch (error) {
+          console.error("Failed to add multiple choice block:", error);
+        }
+      } else {
+        // Default implementation for other blocks
+        console.log("Adding block to template:", block);
+        
+        // Get current template
+        const currentTemplate = designerInstance.getTemplate();
+        
+        // Add the block schema to the template
+        const newSchemas = [...currentTemplate.schemas];
+        if (newSchemas[0]) {
+          newSchemas[0] = [...newSchemas[0], block.schema];
+        } else {
+          newSchemas[0] = [block.schema];
+        }
+        
+        // Update the designer with the new template
+        designerInstance.updateTemplate({
+          ...currentTemplate,
+          schemas: newSchemas
+        });
+      }
     }
-  }, [designerInstance, canvasReady]);
+  }, [designerInstance, canvasReady, templateDefinition]);
 
   // Template selection handler
   const handleTemplateSelect = useCallback((templateDef: TemplateDefinition) => {

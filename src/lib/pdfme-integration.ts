@@ -28,6 +28,14 @@ import {
   validateTemplateBasePdf,
   fixTemplateBasePdf,
 } from "./template-utils";
+import { 
+  createMultipleChoiceBlock, 
+  createPresetMultipleChoiceBlock,
+  findMultipleChoiceBlocks,
+  removeMultipleChoiceBlock,
+  MultipleChoiceBlockOptions,
+  MultipleChoiceBlockResult
+} from "./pdfme/utils/blockComposers";
 
 // Types
 export interface PdfmeIntegrationOptions {
@@ -52,6 +60,14 @@ export interface ValidationResult {
   errors: string[];
   warnings: string[];
 }
+
+// Re-export block composer types for convenience
+export type { 
+  MultipleChoiceBlockOptions, 
+  MultipleChoiceBlockResult,
+  ElementPosition,
+  BlockLayout
+} from "./pdfme/utils/blockComposers";
 
 /**
  * Fixed pdfme integration class with proper basePdf handling
@@ -484,6 +500,141 @@ export class PdfmeIntegration {
     } catch (error) {
       throw new Error(
         `Failed to create template from JSON: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
+  /**
+   * Block Composer Integration
+   * 
+   * The following methods provide integration with the block composers
+   * for creating complex educational elements.
+   */
+
+  /**
+   * Add a multiple choice question block to a template
+   * 
+   * @param template The template to add the block to
+   * @param options Configuration for the multiple choice block
+   * @returns Updated template with the block added
+   */
+  addMultipleChoiceBlock(
+    template: Template,
+    options: MultipleChoiceBlockOptions
+  ): { template: Template; blockResult: MultipleChoiceBlockResult } {
+    try {
+      // Create the multiple choice block
+      const blockResult = createMultipleChoiceBlock(options);
+      
+      // Get the current page or create a new one
+      const currentPage = template.schemas[0] || [];
+      
+      // Add the block schemas to the current page
+      const updatedPage = [...currentPage, ...blockResult.schemas];
+      
+      // Update the template
+      const updatedTemplate = {
+        ...template,
+        schemas: [updatedPage, ...template.schemas.slice(1)]
+      };
+      
+      return {
+        template: updatedTemplate,
+        blockResult
+      };
+    } catch (error) {
+      throw new Error(
+        `Failed to add multiple choice block: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
+  /**
+   * Add a preset multiple choice question to a template
+   * 
+   * @param template The template to add the preset to
+   * @param type Preset question type
+   * @param position Position to place the question
+   * @returns Updated template with the preset question added
+   */
+  addPresetMultipleChoiceBlock(
+    template: Template,
+    type: 'geography' | 'science' | 'math' | 'history',
+    position: { x: number; y: number }
+  ): { template: Template; blockResult: MultipleChoiceBlockResult } {
+    try {
+      // Create the preset multiple choice block
+      const blockResult = createPresetMultipleChoiceBlock(type, position);
+      
+      // Get the current page or create a new one
+      const currentPage = template.schemas[0] || [];
+      
+      // Add the block schemas to the current page
+      const updatedPage = [...currentPage, ...blockResult.schemas];
+      
+      // Update the template
+      const updatedTemplate = {
+        ...template,
+        schemas: [updatedPage, ...template.schemas.slice(1)]
+      };
+      
+      return {
+        template: updatedTemplate,
+        blockResult
+      };
+    } catch (error) {
+      throw new Error(
+        `Failed to add preset multiple choice block: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    }
+  }
+
+  /**
+   * Find all multiple choice blocks in a template
+   * 
+   * @param template The template to search
+   * @returns Array of group IDs for multiple choice blocks
+   */
+  findMultipleChoiceBlocks(template: Template): string[] {
+    try {
+      // Flatten all schemas from all pages
+      const allSchemas = template.schemas.flat();
+      
+      // Find multiple choice blocks
+      return findMultipleChoiceBlocks(allSchemas);
+    } catch (error) {
+      console.error('Failed to find multiple choice blocks:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Remove a multiple choice block from a template
+   * 
+   * @param template The template to modify
+   * @param groupId Group ID of the block to remove
+   * @returns Updated template with the block removed
+   */
+  removeMultipleChoiceBlock(template: Template, groupId: string): Template {
+    try {
+      // Create a new template with updated schemas
+      const updatedSchemas = template.schemas.map(page => 
+        removeMultipleChoiceBlock(page, groupId)
+      );
+      
+      return {
+        ...template,
+        schemas: updatedSchemas
+      };
+    } catch (error) {
+      throw new Error(
+        `Failed to remove multiple choice block: ${
           error instanceof Error ? error.message : "Unknown error"
         }`
       );
