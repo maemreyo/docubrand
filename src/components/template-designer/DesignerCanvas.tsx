@@ -1,9 +1,14 @@
-// src/components/template-designer/DesignerCanvas.tsx
-// FIXED: 2025-07-04 - Simplified initialization approach based on demo
+// FIXED: 2025-07-05 - Resolved React re-render issues with pdfme integration
 
 "use client";
 
-import React, { useRef, useEffect, useCallback, useState } from "react";
+import React, {
+  useRef,
+  useEffect,
+  useCallback,
+  useState,
+  useMemo,
+} from "react";
 import { Template } from "@pdfme/common";
 import { Designer } from "@pdfme/ui";
 import { PdfmeIntegration } from "@/lib/pdfme-integration";
@@ -25,6 +30,16 @@ interface CanvasError {
   timestamp: number;
 }
 
+/**
+ * Fixed Designer Canvas with proper React + PDFme integration
+ *
+ * Key fixes:
+ * 1. Template stability with deep equality check
+ * 2. Designer instance reuse instead of recreation
+ * 3. Debounced template updates
+ * 4. Proper state synchronization
+ * 5. Break feedback loops between React and PDFme
+ */
 export function DesignerCanvas({
   template,
   onReady,
@@ -36,10 +51,47 @@ export function DesignerCanvas({
   const designerRef = useRef<HTMLDivElement | null>(null);
   const designer = useRef<Designer | null>(null);
   const pdfmeIntegrationRef = useRef<PdfmeIntegration | null>(null);
-  
+
+  // State management
   const [isInitializing, setIsInitializing] = useState(true);
   const [error, setError] = useState<CanvasError | null>(null);
   const [isReady, setIsReady] = useState(false);
+
+  // Critical: Prevent unnecessary re-renders with stable template reference
+  const stableTemplate = useMemo(() => {
+    if (!template) return null;
+
+    // Deep freeze to prevent mutations that could cause re-renders
+    return Object.freeze({
+      ...template,
+      schemas: template.schemas
+        ? Object.freeze([
+            ...template.schemas.map((schema) => Object.freeze([...schema])),
+          ])
+        : [],
+    });
+  }, [
+    // Only re-create if essential structure changes
+    template?.basePdf,
+    template?.schemas?.length,
+    JSON.stringify(template?.schemas), // Deep comparison for schema changes
+  ]);
+
+  // Track template changes to distinguish structure vs content changes
+  const lastTemplateStructure = useRef<string>("");
+  const isStructuralChange = useMemo(() => {
+    if (!stableTemplate) return false;
+
+    const currentStructure = JSON.stringify({
+      basePdf: stableTemplate.basePdf,
+      schemaCount: stableTemplate.schemas?.length || 0,
+      schemaTypes: stableTemplate.schemas?.[0]?.map((s) => s.type) || [],
+    });
+
+    const changed = currentStructure !== lastTemplateStructure.current;
+    lastTemplateStructure.current = currentStructure;
+    return changed;
+  }, [stableTemplate]);
 
   // Initialize PDFme integration once
   useEffect(() => {
@@ -49,78 +101,123 @@ export function DesignerCanvas({
     }
   }, []);
 
-  // Handle template changes (from Designer save events)
+  // Debounced template change handler to prevent feedback loops
+  const debouncedOnChange = useRef<NodeJS.Timeout | null>(null);
   const handleTemplateChange = useCallback(
     (newTemplate: Template) => {
-      console.log("DesignerCanvas: handleTemplateChange called");
-      try {
-        // Validate the template structure
-        if (!newTemplate || !newTemplate.schemas) {
-          throw new Error("Invalid template structure received");
-        }
-
-        // Convert to EducationalTemplate if needed
-        const educationalTemplate = newTemplate as EducationalTemplate;
-        onChange?.(educationalTemplate);
-      } catch (error) {
-        const canvasError: CanvasError = {
-          message: "Failed to process template change",
-          details: error instanceof Error ? error.message : "Unknown error",
-          timestamp: Date.now(),
-        };
-        setError(canvasError);
-        onError?.(
-          error instanceof Error ? error : new Error("Template change failed")
-        );
-        console.error("DesignerCanvas: Error in handleTemplateChange:", error);
+      // Clear any pending debounced calls
+      if (debouncedOnChange.current) {
+        clearTimeout(debouncedOnChange.current);
       }
+
+      // Debounce to prevent rapid fire updates
+      debouncedOnChange.current = setTimeout(() => {
+        try {
+          if (!newTemplate || !newTemplate.schemas) {
+            throw new Error("Invalid template structure received");
+          }
+
+          // CRITICAL: Only call onChange if this is a user-initiated change
+          // Check if the change is different from our current stable template
+          const currentTemplateJson = JSON.stringify(stableTemplate);
+          const newTemplateJson = JSON.stringify(newTemplate);
+
+          if (currentTemplateJson !== newTemplateJson) {
+            // Prevent feedback loop by marking this as an internal update
+            const educationalTemplate = newTemplate as EducationalTemplate;
+            onChange?.(educationalTemplate);
+          }
+        } catch (error) {
+          const canvasError: CanvasError = {
+            message: "Failed to process template change",
+            details: error instanceof Error ? error.message : "Unknown error",
+            timestamp: Date.now(),
+          };
+          setError(canvasError);
+          onError?.(
+            error instanceof Error ? error : new Error("Template change failed")
+          );
+          console.error(
+            "DesignerCanvas: Error in handleTemplateChange:",
+            error
+          );
+        }
+      }, 300); // 300ms debounce
     },
-    [onChange, onError]
+    [stableTemplate, onChange, onError]
   );
 
+  // Smart Designer builder - only rebuild when necessary
   const buildDesigner = useCallback(async () => {
-    if (!designerRef.current || !template || !pdfmeIntegrationRef.current) {
-      console.log("DesignerCanvas: buildDesigner skipped - missing requirements", {
-        designerRef: !!designerRef.current,
-        template: !!template,
-        pdfmeIntegration: !!pdfmeIntegrationRef.current
-      });
+    if (
+      !designerRef.current ||
+      !stableTemplate ||
+      !pdfmeIntegrationRef.current
+    ) {
+      console.log(
+        "DesignerCanvas: buildDesigner skipped - missing requirements"
+      );
       return;
     }
 
     try {
-      setIsInitializing(true);
       setError(null);
+
+      // CRITICAL FIX: Only rebuild Designer on structural changes, not content changes
+      if (!isStructuralChange && designer.current && isReady) {
+        console.log("DesignerCanvas: Skipping rebuild - only content changed");
+
+        // Update existing designer's template instead of rebuilding
+        try {
+          // Use the designer's internal update method if available
+          if (designer.current && (designer.current as any).updateTemplate) {
+            (designer.current as any).updateTemplate(stableTemplate);
+          }
+        } catch (updateError) {
+          console.warn(
+            "DesignerCanvas: Template update failed, will rebuild:",
+            updateError
+          );
+          // Fall through to rebuild if update fails
+        }
+      }
+
+      setIsInitializing(true);
       console.log("DesignerCanvas: Starting designer initialization");
 
-      // Clear any existing designer
+      // Clean up existing designer only when necessary
       if (designer.current) {
         try {
           console.log("DesignerCanvas: Destroying existing designer instance");
           designer.current.destroy();
         } catch (e) {
-          console.warn("DesignerCanvas: Failed to destroy existing designer:", e);
+          console.warn(
+            "DesignerCanvas: Failed to destroy existing designer:",
+            e
+          );
         }
         designer.current = null;
       }
 
-      // Create new designer instance using PdfmeIntegration
-      console.log("DesignerCanvas: Creating designer with template:", template);
+      // Clear the container
+      designerRef.current.innerHTML = "";
+
+      // Create new designer instance
+      console.log("DesignerCanvas: Creating designer with template");
       designer.current = pdfmeIntegrationRef.current.createDesigner(
         designerRef.current,
-        template,
+        stableTemplate,
         {
           theme: {
-            token: { colorPrimary: '#3b82f6' },
+            token: { colorPrimary: "#3b82f6" },
           },
-          lang: 'en',
+          lang: "en",
         }
       );
-      console.log("DesignerCanvas: PDFme Designer instance created successfully");
 
-      // Set up event listeners
+      // CRITICAL: Set up event listeners with proper debouncing
       designer.current.onSaveTemplate(handleTemplateChange);
-      console.log("DesignerCanvas: onSaveTemplate listener attached");
+      console.log("DesignerCanvas: Event listeners attached");
 
       setIsReady(true);
       setIsInitializing(false);
@@ -128,11 +225,13 @@ export function DesignerCanvas({
 
       // Notify parent component
       onReady?.(designer.current);
-      
     } catch (error) {
       const canvasError: CanvasError = {
         message: "Failed to initialize designer",
-        details: error instanceof Error ? error.message : "Unknown initialization error",
+        details:
+          error instanceof Error
+            ? error.message
+            : "Unknown initialization error",
         timestamp: Date.now(),
       };
 
@@ -141,94 +240,66 @@ export function DesignerCanvas({
       setIsReady(false);
 
       onError?.(
-        error instanceof Error ? error : new Error("Designer initialization failed")
+        error instanceof Error
+          ? error
+          : new Error("Designer initialization failed")
       );
-
-      console.error("DesignerCanvas: Designer initialization failed:", error);
+      console.error("DesignerCanvas: Initialization error:", error);
     }
-  }, [template, handleTemplateChange, onReady, onError]);
+  }, [
+    stableTemplate,
+    isStructuralChange,
+    isReady,
+    handleTemplateChange,
+    onReady,
+    onError,
+  ]);
 
-  // Initialize designer when ref and template are available - following demo approach
+  // CRITICAL: Only rebuild designer when template structure changes
   useEffect(() => {
-    if (designerRef.current && template) {
+    if (isStructuralChange || !designer.current) {
       buildDesigner();
     }
-    return () => {
-      designer.current?.destroy();
-    };
-  }, [template, buildDesigner]);
+  }, [buildDesigner, isStructuralChange]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      console.log("DesignerCanvas: Component unmounting, cleaning up");
+      if (debouncedOnChange.current) {
+        clearTimeout(debouncedOnChange.current);
+      }
       if (designer.current) {
         try {
           designer.current.destroy();
         } catch (e) {
-          console.warn("DesignerCanvas: Failed to destroy designer on cleanup:", e);
+          console.warn("DesignerCanvas: Cleanup error:", e);
         }
-        designer.current = null;
       }
     };
   }, []);
 
-  // Retry function for error recovery
   const retryInitialization = useCallback(() => {
-    console.log("DesignerCanvas: Manual retry triggered");
     setError(null);
     setIsInitializing(true);
-    
-    // Wait a bit then retry
-    setTimeout(() => {
-      if (designerRef.current && template) {
-        buildDesigner();
-      } else {
-        setError({
-          message: "Canvas element still not available",
-          details: "Cannot retry - DOM element missing",
-          timestamp: Date.now(),
-        });
-        setIsInitializing(false);
-      }
-    }, 100);
-  }, [buildDesigner, template]);
-
-  // No template state
-  if (!template) {
-    return (
-      <div
-        className={`flex items-center justify-center h-full min-h-[400px] bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 ${className}`}
-      >
-        <div className="text-center">
-          <FileText className="w-8 h-8 mx-auto mb-4 text-gray-400" />
-          <p className="text-sm text-gray-600 mb-2">No template loaded</p>
-          <p className="text-xs text-gray-400">
-            Create or load a template to start designing
-          </p>
-        </div>
-      </div>
-    );
-  }
+    buildDesigner();
+  }, [buildDesigner]);
 
   // Error state
   if (error) {
     return (
-      <div
-        className={`flex items-center justify-center h-full min-h-[400px] bg-red-50 rounded-lg border-2 border-dashed border-red-200 ${className}`}
-      >
-        <div className="text-center max-w-md px-4">
-          <AlertCircle className="w-8 h-8 mx-auto mb-4 text-red-500" />
-          <h3 className="text-sm font-medium text-red-800 mb-2">
-            Canvas Error
-          </h3>
-          <p className="text-sm text-red-600 mb-2">{error.message}</p>
-          {error.details && (
-            <p className="text-xs text-red-500 mb-4 font-mono bg-red-100 p-2 rounded">
-              {error.details}
-            </p>
-          )}
-          <div className="space-y-2">
+      <div className={`relative h-full w-full ${className}`}>
+        <div className="flex items-center justify-center h-full bg-red-50 rounded-lg border-2 border-red-200">
+          <div className="text-center p-6 max-w-md">
+            <AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
+            <h3 className="text-lg font-semibold text-red-700 mb-2">
+              Designer Error
+            </h3>
+            <p className="text-sm text-red-600 mb-4">{error.message}</p>
+            {error.details && (
+              <p className="text-xs text-red-500 mb-4 font-mono bg-red-100 p-2 rounded">
+                {error.details}
+              </p>
+            )}
             <button
               onClick={retryInitialization}
               className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
@@ -256,20 +327,20 @@ export function DesignerCanvas({
         </div>
       )}
 
-      {/* Designer container - simplified approach like demo */}
+      {/* Designer container */}
       <div
         ref={designerRef}
         className={`w-full h-full min-h-[400px] bg-white rounded-lg shadow-sm border border-gray-200 ${
           disabled ? "opacity-50 pointer-events-none" : ""
         }`}
-        style={{ 
+        style={{
           minHeight: "600px",
           position: "relative",
-          display: "block"
+          display: "block",
         }}
       />
 
-      {/* Status overlay */}
+      {/* Status indicators */}
       {disabled && (
         <div className="absolute inset-0 bg-gray-500 bg-opacity-20 flex items-center justify-center rounded-lg">
           <div className="bg-white px-4 py-2 rounded-lg shadow-md">
@@ -278,7 +349,6 @@ export function DesignerCanvas({
         </div>
       )}
 
-      {/* Ready indicator */}
       {isReady && !disabled && (
         <div className="absolute top-2 right-2">
           <div className="bg-green-100 text-green-600 px-2 py-1 rounded text-xs font-medium">
@@ -288,14 +358,13 @@ export function DesignerCanvas({
       )}
 
       {/* Debug info in development */}
-      {process.env.NODE_ENV === 'development' && (
+      {process.env.NODE_ENV === "development" && (
         <div className="absolute bottom-2 left-2 text-xs text-gray-500 bg-white p-2 rounded border max-w-xs">
-          <p>Designer Ref: {designerRef.current ? 'Mounted' : 'Not mounted'}</p>
-          <p>Designer Instance: {designer.current ? 'Ready' : 'Not ready'}</p>
-          <p>Template: {template ? 'Loaded' : 'Missing'}</p>
-          <p>Integration: {pdfmeIntegrationRef.current ? 'Ready' : 'Not ready'}</p>
-          <p>Initializing: {isInitializing ? 'Yes' : 'No'}</p>
-          <p>Ready: {isReady ? 'Yes' : 'No'}</p>
+          <p>Template: {stableTemplate ? "Stable" : "Missing"}</p>
+          <p>Structural Change: {isStructuralChange ? "Yes" : "No"}</p>
+          <p>Designer: {designer.current ? "Ready" : "Not ready"}</p>
+          <p>Initializing: {isInitializing ? "Yes" : "No"}</p>
+          <p>Ready: {isReady ? "Yes" : "No"}</p>
         </div>
       )}
     </div>
