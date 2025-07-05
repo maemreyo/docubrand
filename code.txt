@@ -1,0 +1,149 @@
+# Phân Tích Chi Tiết và Các Trường Hợp Sử Dụng của `plugin/utils.ts`
+
+Tệp `utils.ts` là trái tim của bộ công cụ plugin PDFme này. Nó cung cấp một loạt các hàm tiện ích cốt lõi được sử dụng rộng rãi bởi hầu hết các plugin khác (như `text`, `image`, `table`, `barcode`, v.v.) để thực hiện các tác vụ từ render PDF, xử lý giao diện người dùng (UI), đến chuyển đổi dữ liệu.
+
+Dưới đây là phân tích chi tiết từng hàm và các trường hợp sử dụng thực tế của chúng trong dự án.
+
+---
+
+### 1. `convertForPdfLayoutProps`
+
+Hàm này là một trong những hàm quan trọng nhất, đóng vai trò là cầu nối giữa hệ tọa độ của UI (đơn vị `mm`, gốc ở trên cùng bên trái) và hệ tọa độ của thư viện `pdf-lib` (đơn vị `pt`, gốc ở dưới cùng bên trái).
+
+- **Mục đích:**
+    1.  **Chuyển đổi đơn vị:** Chuyển đổi `width`, `height`, và `position` (x, y) từ milimét (mm) sang point (pt), đơn vị mà `pdf-lib` sử dụng.
+    2.  **Lật trục Y:** Đảo ngược tọa độ `y` vì hệ tọa độ của PDF bắt đầu từ dưới lên, trong khi UI bắt đầu từ trên xuống.
+    3.  **Xử lý xoay (Rotation):** Tính toán lại tọa độ `x`, `y` khi có một góc xoay. `pdf-lib` xoay một đối tượng quanh góc dưới cùng bên trái của nó, trong khi UI xoay quanh tâm của đối tượng. Hàm này điều chỉnh `x` và `y` để đảm bảo đối tượng được xoay quanh tâm, giống như trên UI.
+
+- **Tham số:**
+    - `schema`: Đối tượng schema của plugin, chứa các thuộc tính `width`, `height`, `position`, `rotate`.
+    - `pageHeight`: Chiều cao của trang PDF (tính bằng pt), cần thiết để lật trục Y.
+    - `applyRotateTranslate`: Một cờ boolean (mặc định là `true`). Khi `true`, nó sẽ điều chỉnh tọa độ `x`, `y` cho việc xoay. Khi `false`, nó trả về tọa độ đã lật trục Y nhưng chưa điều chỉnh cho việc xoay.
+
+- **Các trường hợp sử dụng:**
+    - **Hầu hết các plugin `pdfRender`:** Hầu hết các plugin như `barcodes/pdfRender.ts`, `graphics/image.ts`, `graphics/svg.ts` gọi hàm này để lấy các thuộc tính layout cuối cùng (`width`, `height`, `position`, `rotate`, `opacity`) trước khi vẽ lên trang PDF.
+        ```typescript
+        // Ví dụ từ graphics/image.ts
+        const pageHeight = page.getHeight();
+        const lProps = convertForPdfLayoutProps({ schema: _schema, pageHeight });
+        const { width, height, rotate, position, opacity } = lProps;
+        page.drawImage(image, { x: position.x, y: position.y, rotate, width, height, opacity });
+        ```
+    - **Trường hợp đặc biệt (`applyRotateTranslate: false`):**
+        - Trong `shapes/line.ts` và `shapes/rectAndEllipse.ts`, hàm này được gọi với `applyRotateTranslate: false`. Lý do là các hàm vẽ đường thẳng hoặc hình chữ nhật của `pdf-lib` không xử lý việc xoay quanh tâm một cách trực tiếp. Thay vào đó, các plugin này tự tính toán các điểm cuối cùng sau khi xoay bằng cách sử dụng tiện ích `rotatePoint`.
+
+---
+
+### 2. `rotatePoint`
+
+Một hàm toán học thuần túy để xoay một điểm (`point`) quanh một điểm neo (`pivot`) một góc nhất định.
+
+- **Mục đích:** Thực hiện phép biến đổi hình học để tìm tọa độ mới của một điểm sau khi xoay.
+- **Các trường hợp sử dụng:**
+    - **`shapes/line.ts`:** Đây là trường hợp sử dụng chính. Plugin này lấy vị trí bắt đầu và kết thúc của đường thẳng ở trạng thái chưa xoay, sau đó dùng `rotatePoint` để xoay cả hai điểm này quanh tâm của đường thẳng. Các tọa độ mới sau đó được dùng để vẽ đường thẳng.
+        ```typescript
+        // Ví dụ từ shapes/line.ts
+        const pivot = { x: x + width / 2, y: y + height / 2 };
+        page.drawLine({
+          start: rotatePoint({ x, y: y + height / 2 }, pivot, rotate.angle),
+          end: rotatePoint({ x: x + width, y: y + height / 2 }, pivot, rotate.angle),
+          // ...
+        });
+        ```
+    - **`text/pdfRender.ts`:** Khi vẽ văn bản, mỗi dòng được vẽ riêng lẻ. Nếu có góc xoay, vị trí của mỗi dòng phải được tính toán lại. Hàm này được sử dụng để xoay điểm bắt đầu của mỗi dòng văn bản quanh tâm của toàn bộ khối văn bản.
+
+---
+
+### 3. `hex2...Color` và `hex2PrintingColor`
+
+Một nhóm các hàm để chuyển đổi mã màu hex (ví dụ: `#FF5733`) thành các đối tượng màu mà `pdf-lib` có thể hiểu được.
+
+- **`hex2RgbColor`:** Chuyển đổi hex sang đối tượng màu RGB.
+- **`hex2CmykColor`:** Chuyển đổi hex sang đối tượng màu CMYK (hữu ích cho in ấn chuyên nghiệp).
+- **`hex2PrintingColor`:** Hàm điều phối chính. Nó kiểm tra `options.colorType` và gọi `hex2RgbColor` hoặc `hex2CmykColor` tương ứng.
+
+- **Mục đích:** Cung cấp sự linh hoạt để tạo ra các tệp PDF cho cả màn hình (RGB) và in ấn (CMYK) từ cùng một mã màu hex.
+- **Các trường hợp sử dụng:** Được sử dụng trong mọi hàm `pdfRender` có xử lý màu sắc.
+    - **`shapes/line.ts`:** `color: hex2PrintingColor(schema.color ?? DEFAULT_LINE_COLOR, colorType)`
+    - **`text/pdfRender.ts`:** Dùng cho cả `fontColor` và `backgroundColor`.
+    - **`shapes/rectAndEllipse.ts`:** Dùng cho `borderColor` và `color`.
+
+---
+
+### 4. `isEditable`
+
+Một hàm tiện ích đơn giản nhưng quan trọng để tập trung logic quyết định xem một phần tử trên UI có nên cho phép chỉnh sửa hay không.
+
+- **Mục đích:** Kiểm tra `mode` hiện tại ('designer', 'form', 'viewer') và thuộc tính `readOnly` của schema để trả về `true` hoặc `false`.
+- **Logic:**
+    - Luôn `true` ở chế độ `designer`.
+    - Ở chế độ `form`, nó `true` trừ khi `schema.readOnly` được đặt là `true`.
+    - Luôn `false` ở chế độ `viewer`.
+- **Các trường hợp sử dụng:** Được sử dụng trong hầu hết các hàm `uiRender` để kiểm soát hành vi của UI.
+    - **`barcodes/uiRender.ts`:** Quyết định có hiển thị một thẻ `<input>` để người dùng nhập dữ liệu hay không.
+    - **`checkbox/index.ts`:** Quyết định có thêm trình nghe sự kiện `click` để thay đổi trạng thái của checkbox hay không.
+    - **`date/helper.ts`:** Quyết định có hiển thị bộ chọn ngày khi người dùng nhấp vào hay không.
+    - **`graphics/image.ts`:** Quyết định có hiển thị nút tải lên tệp và nút xóa ảnh hay không.
+
+---
+
+### 5. `addAlphaToHex`
+
+Thêm một giá trị alpha (độ trong suốt) vào một mã màu hex 6 chữ số, tạo ra một mã màu 8 chữ số (RGBA).
+
+- **Mục đích:** Dễ dàng tạo ra các màu bán trong suốt cho UI.
+- **Các trường hợp sử dụng:**
+    - **`barcodes/uiRender.ts`:** Tạo nền bán trong suốt cho trường nhập liệu barcode: `addAlphaToHex('#000000', 80)`.
+    - **`graphics/image.ts` và `graphics/svg.ts`:** Tạo một lớp phủ bán trong suốt trên khu vực tải lên tệp để cho người dùng biết đó là một khu vực tương tác: `addAlphaToHex(theme.colorPrimaryBg, 30)`.
+
+---
+
+### 6. `readFile`
+
+Một hàm bao bọc (wrapper) dựa trên Promise cho `FileReader` API của trình duyệt.
+
+- **Mục đích:** Đơn giản hóa việc đọc tệp (thường từ một `<input type="file">`) và trả về nội dung của nó dưới dạng một chuỗi data URL.
+- **Các trường hợp sử dụng:**
+    - **`graphics/image.ts`:** Đây là trường hợp sử dụng điển hình. Nó được gọi trong trình nghe sự kiện `change` của input tệp để lấy dữ liệu ảnh dưới dạng base64, sau đó cập nhật schema với dữ liệu mới này.
+
+---
+
+### 7. `createErrorElm`
+
+Tạo ra một phần tử DOM được chuẩn hóa để hiển thị thông báo lỗi trên UI.
+
+- **Mục đích:** Cung cấp phản hồi trực quan, nhất quán cho người dùng khi có lỗi xảy ra trong quá trình render UI.
+- **Các trường hợp sử dụng:**
+    - **`barcodes/uiRender.ts`:** Được sử dụng trong một khối `try...catch`. Nếu việc tạo mã vạch thất bại, phần tử lỗi này sẽ được hiển thị.
+    - **`graphics/svg.ts`:** Nếu chuỗi SVG được cung cấp không hợp lệ (`isValidSVG` trả về `false`), phần tử lỗi này sẽ được hiển thị thay vì SVG.
+
+---
+
+### 8. `createSvgStr`
+
+Một hàm trợ giúp để tạo một chuỗi SVG hoàn chỉnh từ một `IconNode` của thư viện `lucide`.
+
+- **Mục đích:** Trừu tượng hóa việc tạo icon SVG. Điều này đặc biệt quan trọng vì cấu trúc dữ liệu của thư viện `lucide` đã thay đổi, và hàm này đảm bảo rằng các icon luôn được tạo ra một cách chính xác.
+- **Các trường hợp sử dụng:** Được sử dụng bởi hầu hết các tệp `index.ts` của plugin để định nghĩa `icon` sẽ hiển thị trong thanh công cụ của trình thiết kế.
+    - **`barcodes/index.ts`:** `icon: createSvgStr(type == 'qrcode' ? QrCode : Barcode)`
+    - **`checkbox/index.ts`:** `icon: getCheckedIcon()`, hàm này bên trong cũng gọi `createSvgStr`.
+    - **`date/date.ts`:** `icon: createSvgStr(Calendar)`
+    - **`shapes/line.ts`:** `icon: createSvgStr(Minus)`
+
+---
+
+### 9. `getDynamicHeightsForTable`
+
+Đây thực chất là một alias (bí danh) cho hàm `_getDynamicHeightsForTable` được nhập từ `tables/dynamicTemplate.ts`.
+
+- **Mục đích:** Tính toán động chiều cao của mỗi hàng trong một bảng dựa trên nội dung của nó. Điều này rất quan trọng cho các layout động, nơi một bảng có thể cần phải ngắt trang.
+- **Các trường hợp sử dụng:** Mặc dù được export từ `utils.ts`, nó không được sử dụng bởi các plugin *khác* trong thư mục này. Nó được thiết kế để được sử dụng bởi ứng dụng chính hoặc trình tạo PDF (generator) cấp cao hơn, nơi cần biết trước chiều cao của các phần tử để quyết định cách phân trang.
+
+---
+
+### Tổng kết
+
+Tệp `utils.ts` là nền tảng vững chắc cho toàn bộ hệ thống plugin. Nó thực hiện các nguyên tắc thiết kế phần mềm tốt bằng cách:
+- **Tập trung hóa logic:** Các tác vụ lặp đi lặp lại như chuyển đổi tọa độ, kiểm tra khả năng chỉnh sửa, và xử lý màu sắc được đặt ở một nơi duy nhất, giúp mã nguồn dễ bảo trì và nhất quán.
+- **Trừu tượng hóa sự phức tạp:** Nó che giấu các chi tiết phức tạp của `pdf-lib` (như hệ tọa độ và xoay đối tượng) và các API của trình duyệt (`FileReader`), cung cấp các giao diện đơn giản hơn cho các plugin.
+- **Cung cấp các công cụ chung:** Cung cấp các hàm trợ giúp nhất quán (`createErrorElm`, `createSvgStr`) để đảm bảo trải nghiệm người dùng và giao diện nhà phát triển đồng bộ trên tất cả các plugin.
