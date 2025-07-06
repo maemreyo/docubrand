@@ -5,16 +5,25 @@ import { essayPlugin } from "./essay";
 import { instructionBoxPlugin } from "./instruction-box";
 import { LucideIcon } from "lucide-react";
 
+// Import custom plugins from plugins directory
+import { customPlugins } from "../plugins/custom";
+
 /**
  * Get all educational plugins - FIXED
  */
 export const getEducationalPlugins = () => {
   return {
+    // Legacy educational plugins
     multipleChoice,
     trueFalse: trueFalsePlugin,
     shortAnswer: shortAnswerPlugin,
     essay: essayPlugin,
     instructionBox: instructionBoxPlugin,
+    
+    // New custom plugins
+    multipleChoiceQuestion: customPlugins.multipleChoiceQuestion,
+    linedAnswerBox: customPlugins.linedAnswerBox,
+    fillInTheBlank: customPlugins.fillInTheBlank,
   };
 };
 
@@ -40,13 +49,18 @@ export const getPluginByQuestionType = (questionType: string) => {
 
   switch (questionType) {
     case "multiple_choice":
-      return plugins.multipleChoice;
+      // Prefer the new plugin if available, fall back to legacy
+      return plugins.multipleChoiceQuestion || plugins.multipleChoice;
     case "true_false":
       return plugins.trueFalse;
     case "short_answer":
       return plugins.shortAnswer;
     case "essay":
       return plugins.essay;
+    case "lined_answer_box":
+      return plugins.linedAnswerBox;
+    case "fill_in_the_blank":
+      return plugins.fillInTheBlank;
     default:
       return null;
   }
@@ -71,8 +85,20 @@ export const validateEducationalPlugin = (plugin: any): boolean => {
  */
 export const getEducationalPluginCategories = () => {
   return {
-    questions: ["multipleChoice", "trueFalse", "shortAnswer", "essay"],
-    layout: ["instructionBox"],
+    questions: [
+      "multipleChoice", 
+      "multipleChoiceQuestion", 
+      "trueFalse", 
+      "shortAnswer", 
+      "essay",
+      "fillInTheBlank"
+    ],
+    layout: [
+      "instructionBox", 
+    ],
+    writing: [
+      "linedAnswerBox"
+    ],
   };
 };
 
